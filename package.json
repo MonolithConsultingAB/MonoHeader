@@ -1,0 +1,24 @@
+{
+  "name": "monoheader",
+  "version": "1.9.5",
+  "private": true,
+  "description": "A private, local-only HTTP header modification extension for Chrome.",
+  "author": "Monolith Consulting AB",
+  "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node scripts/validate-package.mjs",
+    "package": "npm run icons && node scripts/package.mjs",
+    "e2e:install": "playwright install chromium",
+    "test:e2e": "npm run package && playwright test --config=playwright.config.mjs",
+    "test:e2e:headed": "MONOHEADER_E2E_HEADED=1 npm run test:e2e",
+    "package:source": "node scripts/package-source.mjs",
+    "release:check": "npm test && npm run check && npm run test:e2e && npm run package:source"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0",
+    "@resvg/resvg-js": "2.6.2",
+    "fflate": "0.8.2",
+    "selfsigned": "5.5.0"
+  }
+}

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for the MonoHeader Chrome extension, created by Monolith Consulting AB.">
+  <title>MonoHeader Privacy Policy</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f5f6fa;
+      --surface: #ffffff;
+      --border: #e1e5ee;
+      --text: #182033;
+      --muted: #667085;
+      --primary: #4338ca;
+      --primary-soft: #eef0ff;
+      --success: #078a62;
+      --shadow: 0 18px 52px rgba(20, 28, 48, .09);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--background);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+      margin: 0;
+    }
+    header {
+      background: linear-gradient(135deg, #312e81, #4f46e5 62%, #6962ed);
+      color: #fff;
+      padding: 56px 24px 74px;
+    }
+    .header-inner,
+    main {
+      margin: 0 auto;
+      max-width: 920px;
+    }
+    .brand {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      margin-bottom: 34px;
+    }
+    .mark {
+      align-items: center;
+      background: #fff;
+      border-radius: 16px;
+      color: var(--primary);
+      display: inline-flex;
+      font-size: 26px;
+      font-weight: 850;
+      height: 58px;
+      justify-content: center;
+      letter-spacing: -.08em;
+      width: 58px;
+    }
+    .brand strong,
+    .brand span { display: block; }
+    .brand strong { font-size: 18px; }
+    .brand span { color: rgba(255,255,255,.72); font-size: 12px; }
+    h1 {
+      font-size: clamp(34px, 7vw, 54px);
+      letter-spacing: -.045em;
+      line-height: 1.05;
+      margin: 0 0 18px;
+    }
+    header p {
+      color: rgba(255,255,255,.82);
+      font-size: 17px;
+      margin: 0;
+      max-width: 720px;
+    }
+    main {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      margin-bottom: 56px;
+      margin-top: -34px;
+      padding: clamp(26px, 6vw, 58px);
+    }
+    .meta {
+      background: var(--primary-soft);
+      border-radius: 13px;
+      color: var(--primary);
+      display: flex;
+      flex-wrap: wrap;
+      font-size: 13px;
+      font-weight: 700;
+      gap: 8px 24px;
+      margin-bottom: 38px;
+      padding: 15px 18px;
+    }
+    h2 {
+      font-size: 23px;
+      letter-spacing: -.025em;
+      line-height: 1.25;
+      margin: 44px 0 12px;
+    }
+    h3 {
+      font-size: 17px;
+      margin: 28px 0 8px;
+    }
+    p { margin: 0 0 15px; }
+    ul { margin: 8px 0 20px; padding-left: 24px; }
+    li { margin: 5px 0; }
+    code {
+      background: #f1f3f9;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .9em;
+      padding: 1px 5px;
+    }
+    .summary {
+      border-left: 4px solid var(--success);
+      color: var(--muted);
+      margin: 24px 0 34px;
+      padding: 2px 0 2px 18px;
+    }
+    footer {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 auto;
+      max-width: 920px;
+      padding: 0 24px 44px;
+      text-align: center;
+    }
+    @media (max-width: 620px) {
+      header { padding-top: 34px; }
+      main { border-radius: 0; border-inline: 0; margin-top: -28px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">M</span>
+        <span><strong>MonoHeader</strong><span>Local header control</span></span>
+      </div>
+      <h1>Privacy Policy</h1>
+      <p>How the MonoHeader Chrome extension handles locally stored configuration, authentication information, and user-selected web origins.</p>
+    </div>
+  </header>
+  <main>
+    <div class="meta">
+      <span>Effective: 27 July 2026</span>
+      <span>Last updated: 27 July 2026</span>
+      <span>Developer: Monolith Consulting AB</span>
+    </div>
+
+    <p class="summary">Chrome Web Store policy uses “collect” and “handle” broadly and includes information processed only on a user’s device. MonoHeader handles certain information locally. Monolith Consulting AB does not operate a MonoHeader server and does not receive users’ extension configuration, header values, browsing activity, diagnostics, or exported files.</p>
+
+    <h2>1. Scope</h2>
+    <p>This Privacy Policy describes how the MonoHeader Chrome extension handles information when users create and apply HTTP request and response header rules or use the optional tab-specific session keep-alive feature.</p>
+
+    <h2>2. MonoHeader’s purpose</h2>
+    <p>MonoHeader’s single purpose is to give users local control over HTTP sessions in Chrome for development, testing, and administration. Users can create and apply rules that set, append, or remove HTTP request and response headers. As part of the same session-control purpose, users may optionally enable tab-specific session keep-alive functionality for a website they select.</p>
+
+    <h2>3. Information handled by MonoHeader</h2>
+    <h3>3.1 Configuration information</h3>
+    <p>MonoHeader stores configuration entered by the user, including:</p>
+    <ul>
+      <li>profile and rule names;</li>
+      <li>request and response header names, operations, and values;</li>
+      <li>URL filters, regular expressions, domains, resource types, and request methods;</li>
+      <li>rule priorities and enabled or disabled states;</li>
+      <li>interface settings;</li>
+      <li>deployment history, rollback information, and diagnostic messages.</li>
+    </ul>
+    <p>This information is used only to provide the extension’s user-facing functionality.</p>
+
+    <h3>3.2 Authentication information</h3>
+    <p>MonoHeader is a general-purpose header tool. A user may choose to enter authentication-related information, such as an authorization token, API key, session identifier, or other credential, as a header value.</p>
+    <p>MonoHeader does not obtain such information from page content, forms, password fields, or cookies. It handles authentication information only when the user explicitly enters it as an extension configuration value.</p>
+    <p>Values saved normally remain in Chrome’s local extension storage until the user changes or deletes them, resets the extension, or removes the extension. Values marked <strong>This session</strong> are stored only in Chrome’s in-memory <code>chrome.storage.session</code> area and are excluded from persistent configuration, deployment history, diagnostics, rollback snapshots, and exported files.</p>
+    <p>Such a value is not written to MonoHeader's persistent configuration, rollback snapshot, diagnostics, deployment history, or exported JSON. If its in-memory value is missing, MonoHeader removes any stale session rule and leaves the modification inactive until the value is re-entered.</p>
+
+    <h3>3.3 Web browsing activity</h3>
+    <p>MonoHeader does not collect or maintain the user’s general browsing history.</p>
+    <p>When the user explicitly configures or enables keep-alive for a tab, MonoHeader may locally handle:</p>
+    <ul>
+      <li>the selected tab identifier;</li>
+      <li>the exact HTTPS origin selected by the user;</li>
+      <li>an optional same-origin request path;</li>
+      <li>the selected keep-alive method and interval;</li>
+      <li>scheduler state, timestamps, HTTP status, redirect state, completion flags, and a short error description;</li>
+      <li>optional keep-alive presets saved for an exact HTTPS origin.</li>
+    </ul>
+    <p>Header rules may also contain domains or URL patterns entered by the user. This information is used only to determine where the user’s rules should apply.</p>
+
+    <h3>3.4 Information MonoHeader does not collect</h3>
+    <p>MonoHeader does not intentionally collect:</p>
+    <ul>
+      <li>names, postal addresses, email addresses, government identifiers, or other identity information;</li>
+      <li>health information;</li>
+      <li>financial or payment information;</li>
+      <li>personal communications;</li>
+      <li>physical location, GPS coordinates, or IP-address-based location;</li>
+      <li>the user’s actual clicks, mouse position, scrolling, or keystrokes;</li>
+      <li>page text, images, audio, video, hyperlinks, form values, request bodies, or response bodies.</li>
+    </ul>
+    <p>Activity pulse creates synthetic, untrusted document-level events. It does not record the user’s actual activity and does not select or activate page elements.</p>
+
+    <h2>4. How information is used</h2>
+    <p>MonoHeader uses locally handled information only to:</p>
+    <ul>
+      <li>save and display the user’s profiles and rules;</li>
+      <li>compile and apply enabled header modifications through Chrome’s Declarative Net Request engine;</li>
+      <li>show local runtime status, deployment history, diagnostics, and rollback information;</li>
+      <li>import and export user-requested local configuration files;</li>
+      <li>perform and report user-enabled, tab-specific keep-alive checks;</li>
+      <li>restore exact-origin keep-alive presets when the user opens the popup on the same origin.</li>
+    </ul>
+    <p>MonoHeader does not use information for advertising, profiling, analytics, creditworthiness, lending, marketing, or any purpose unrelated to the extension’s disclosed functionality.</p>
+
+    <h2>5. Local storage and retention</h2>
+    <h3>Persistent local storage</h3>
+    <p>Profiles, ordinary header values, rules, settings, local history, diagnostics, rollback information, active keep-alive configuration, and keep-alive presets are stored in <code>chrome.storage.local</code> on the user’s device. They remain there until the user deletes or changes them, clears diagnostics, restores factory defaults, or removes the extension.</p>
+    <h3>Session-only storage</h3>
+    <p>Header values marked <strong>This session</strong> are stored in <code>chrome.storage.session</code>. Chrome clears this storage when the browser session ends or the extension is disabled, reloaded, or updated. MonoHeader also removes stale in-memory Declarative Net Request session rules when their corresponding session value is no longer available.</p>
+    <h3>Local exports</h3>
+    <p>MonoHeader creates an export only when the user selects <strong>Export JSON</strong>. The file is downloaded to the user’s device. Session-only values, diagnostics, deployment history, and rollback snapshots are excluded. Imports occur only after the user selects a local file.</p>
+
+    <h2>6. Network transmissions</h2>
+    <p>MonoHeader does not send configuration, diagnostics, browsing activity, or header values to Monolith Consulting AB.</p>
+    <p>When a request-header rule is enabled, Chrome sends the configured header name and value to destinations matching the rule. This user-directed transmission is the essential purpose of a request-header modification tool. A global rule may apply to every destination supported by Chrome while the rule is enabled. Users should limit sensitive values to trusted HTTPS destinations and avoid sending sensitive information to insecure HTTP origins.</p>
+    <p>Response-header modifications are applied inside Chrome.</p>
+    <p>When the user explicitly enables keep-alive or selects <strong>Test now</strong>, MonoHeader may perform a credentialed <code>GET</code> request to the current HTTPS page or an optional same-origin HTTPS path. The destination cannot leave the selected tab’s origin. The response body is discarded. Activity-only mode sends no keep-alive network request.</p>
+    <p>MonoHeader does not read or retain page content or the response body.</p>
+
+    <h2>7. Sharing, sale, and transfer</h2>
+    <p>Monolith Consulting AB does not sell user data.</p>
+    <p>Monolith Consulting AB does not receive or transfer the information stored by MonoHeader. User-supplied request-header values are transmitted by Chrome only to destinations selected through the user’s enabled rules. Keep-alive requests are sent only to the HTTPS origin explicitly selected by the user.</p>
+    <p>MonoHeader does not use or transfer user data for personalized advertising, retargeting, unrelated profiling, creditworthiness, or lending.</p>
+
+    <h2>8. Chrome Web Store Limited Use compliance</h2>
+    <p>MonoHeader’s use of information received from Chrome APIs complies with the Chrome Web Store User Data Policy, including the Limited Use requirements:</p>
+    <ul>
+      <li>information is used only to provide or improve MonoHeader’s disclosed single purpose and user-facing features;</li>
+      <li>information is not transferred except where necessary to provide the user-directed functionality, comply with applicable law, protect security, or as part of a permitted merger, acquisition, or sale of assets;</li>
+      <li>information is not used for personalized advertising;</li>
+      <li>Monolith Consulting AB personnel cannot access locally stored extension data because MonoHeader has no server or remote data-collection service.</li>
+    </ul>
+
+    <h2>9. Security</h2>
+    <p>MonoHeader uses Manifest V3 and Chrome’s Declarative Net Request API instead of intercepting request or response bodies. It contains no analytics, advertising SDK, remote code, external account system, cloud synchronization, or automatic update checker.</p>
+    <p>Extension pages prohibit remote connections through their Content Security Policy. Keep-alive is restricted to HTTPS and to the selected tab’s origin. Header names and values are validated, including rejection of CR/LF header injection. Sensitive session-only values use Chrome’s in-memory session storage and Declarative Net Request session rules.</p>
+    <p>No software can guarantee absolute security. Users remain responsible for selecting trusted destinations and configuring rules that do not expose sensitive values unnecessarily.</p>
+
+    <h2>10. Permissions</h2>
+    <p>MonoHeader uses the following Chrome permissions:</p>
+    <ul>
+      <li><strong>storage:</strong> stores local configuration, settings, history, diagnostics, rollback data, session-only values, and keep-alive settings;</li>
+      <li><strong>alarms:</strong> schedules keep-alive checks explicitly enabled by the user;</li>
+      <li><strong>scripting:</strong> temporarily runs the packaged keep-alive function in the selected HTTPS tab;</li>
+      <li><strong>declarativeNetRequestWithHostAccess:</strong> applies the user’s enabled request and response header rules;</li>
+      <li><strong>host access to all URLs:</strong> allows a general-purpose header rule to operate on destinations selected by the user.</li>
+    </ul>
+    <p>MonoHeader has no persistent content scripts.</p>
+
+    <h2>11. User choices and deletion</h2>
+    <p>Users can:</p>
+    <ul>
+      <li>disable or delete individual rules;</li>
+      <li>pause MonoHeader;</li>
+      <li>stop or reset keep-alive for a tab;</li>
+      <li>delete exact-origin keep-alive presets;</li>
+      <li>clear diagnostics;</li>
+      <li>export configuration before deletion;</li>
+      <li>restore factory defaults to remove local configuration and in-memory values;</li>
+      <li>remove the extension, which causes Chrome to remove the extension’s local storage.</li>
+    </ul>
+    <p>Because Monolith Consulting AB does not receive the locally stored information, the company cannot view, export, correct, or delete it on the user’s behalf.</p>
+
+    <h2>12. Children’s privacy</h2>
+    <p>MonoHeader is a technical tool for development, testing, and administration. It is not directed to children and does not knowingly collect personal information from children.</p>
+
+    <h2>13. Changes to this policy</h2>
+    <p>If MonoHeader’s data-handling behavior changes, this policy and the Chrome Web Store disclosures will be updated before the changed version is distributed. The effective date and last-updated date at the top of this policy will also be revised.</p>
+
+    <h2>14. Contact</h2>
+    <p>MonoHeader is created and developed by:</p>
+    <p><strong>Monolith Consulting AB</strong><br>Sweden</p>
+    <p>For privacy inquiries, use the verified developer contact address displayed on MonoHeader’s Chrome Web Store listing.</p>
+  </main>
+  <footer>MonoHeader · Created by Monolith Consulting AB · Local header control</footer>
+</body>
+</html>

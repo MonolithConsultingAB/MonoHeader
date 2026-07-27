@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>MonoHeader</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="popup">
+      <header class="popup-header">
+        <div class="brand">
+          <img class="brand-wordmark" src="icons/monoheader-wordmark.svg" width="150" height="33" alt="MonoHeader">
+          <span class="brand-tagline">Local header control</span>
+        </div>
+        <span class="private-badge" title="MonoHeader does not send data to remote services">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8.1 7 10 4.1-1.9 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+          Local
+        </span>
+      </header>
+
+      <section id="loading-state" class="loading-state" aria-live="polite">
+        <span class="spinner"></span>
+        Loading local configuration…
+      </section>
+
+      <div id="popup-content" hidden>
+        <section class="power-card">
+          <div>
+            <span class="eyebrow">Runtime</span>
+            <strong id="power-title">MonoHeader enabled</strong>
+            <p id="power-description">Header rules are active.</p>
+          </div>
+          <label class="switch">
+            <input id="power-toggle" type="checkbox" aria-label="Enable MonoHeader">
+            <span class="switch-track"></span>
+          </label>
+        </section>
+
+        <details id="quick-add-panel" class="quick-add">
+          <summary>
+            <span>
+              <strong>Quick add request header</strong>
+              <small>No workspace tab needed</small>
+            </span>
+            <span class="scope-badge">All sites</span>
+          </summary>
+          <form id="quick-header-form" class="quick-add-body" novalidate>
+            <p id="quick-scope-copy" class="quick-scope-copy">Creates a global Set rule in the active profile.</p>
+            <label>
+              Header name
+              <input id="quick-header-name" type="text" maxlength="256" autocomplete="off" spellcheck="false" placeholder="X-Environment">
+            </label>
+            <label>
+              Header value
+              <input id="quick-header-value" type="text" maxlength="8192" autocomplete="off" spellcheck="false" placeholder="development">
+            </label>
+            <label class="quick-session-option">
+              <input id="quick-header-session-only" type="checkbox">
+              <span>
+                <strong>This browser session only</strong>
+                <small>Keep the value in memory and exclude it from backups. Re-enter it after Chrome restarts.</small>
+              </span>
+            </label>
+            <p class="global-warning">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg>
+              Chrome sends this value to every supported destination while the rule is enabled.
+            </p>
+            <div id="quick-add-status" class="quick-add-status" role="status" aria-live="polite" hidden></div>
+            <button id="quick-add-button" class="quick-add-button" type="submit">Add &amp; apply</button>
+          </form>
+        </details>
+
+        <section class="profile-section">
+          <label for="profile-select">Active profile</label>
+          <select id="profile-select"></select>
+          <div class="rule-summary">
+            <div><strong id="active-rule-count">0</strong><span>Active rules</span></div>
+            <div><strong id="header-change-count">0</strong><span>Header changes</span></div>
+          </div>
+          <div class="active-rules-section">
+            <div class="active-rules-heading">
+              <div>
+                <strong id="active-rules-title">Rules</strong>
+                <span id="active-rules-context">Toggle rules without opening the workspace</span>
+              </div>
+              <span id="active-rules-badge" class="count-badge" aria-hidden="true">0</span>
+            </div>
+            <div id="active-rule-list" class="active-rule-list" role="list" aria-labelledby="active-rules-title" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <div id="popup-error" class="error-message" role="alert" hidden></div>
+
+        <button id="open-dashboard" class="primary-button" type="button">
+          Open rule workspace
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+        </button>
+
+        <section class="session-card" aria-labelledby="session-title">
+          <div class="session-heading">
+            <div>
+              <span class="eyebrow">Session</span>
+              <strong id="session-title">Keep this tab signed in</strong>
+              <small id="session-site">Open an HTTPS website to enable.</small>
+            </div>
+            <label class="switch">
+              <input id="session-toggle" type="checkbox" aria-label="Keep the current tab's session active">
+              <span class="switch-track"></span>
+            </label>
+          </div>
+          <div class="session-controls">
+            <label for="session-mode">Method</label>
+            <select id="session-mode">
+              <option value="activity" selected>Activity pulse</option>
+              <option value="request">Request path</option>
+              <option value="both">Request + pulse</option>
+            </select>
+            <label for="session-interval">Check every</label>
+            <select id="session-interval">
+              <option value="5">5 minutes</option>
+              <option value="10" selected>10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+            <label id="session-target-path-label" for="session-target-path" hidden>Request path</label>
+            <input id="session-target-path" type="text" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="/api/session/keepalive" hidden>
+          </div>
+          <div class="session-preset">
+            <div>
+              <strong>Site preset</strong>
+              <span id="session-preset-status">No preset saved for this site.</span>
+            </div>
+            <div class="session-preset-actions" role="group" aria-label="Site preset actions">
+              <button id="session-preset-save" type="button" aria-describedby="session-preset-help">Save preset</button>
+              <button id="session-preset-delete" class="is-danger" type="button" aria-describedby="session-preset-help" disabled>Delete</button>
+            </div>
+          </div>
+          <p id="session-preset-help" class="session-preset-help">Stores these settings for this exact HTTPS site. Presets never start keep-alive automatically.</p>
+          <p id="session-disclosure" class="session-disclosure">Dispatches synthetic mousemove and click events to the document itself. It never selects or activates a page element, but sites may ignore untrusted events.</p>
+          <div class="session-actions" role="group" aria-label="Keep-alive actions">
+            <button id="session-test-button" type="button" aria-describedby="session-action-help" title="Run the selected method once without enabling the schedule">Test now</button>
+            <button id="session-diagnostics-button" type="button" aria-expanded="false" aria-controls="session-diagnostics">Diagnostics</button>
+            <button id="session-reset-button" class="is-danger" type="button" aria-describedby="session-action-help" title="Stop and clear keep-alive for this tab only">Reset tab</button>
+          </div>
+          <p id="session-action-help" class="session-action-help">Test runs once without starting the schedule. Reset affects only this tab and keeps its site preset.</p>
+          <div class="session-timing">
+            <div>
+              <span id="session-last-label">Last pulse dispatched</span>
+              <time id="session-last-success">Not yet</time>
+            </div>
+            <div>
+              <span>Next check</span>
+              <time id="session-next-check">Off</time>
+            </div>
+          </div>
+          <div id="session-status" class="session-status" role="status" aria-live="polite">Off. No keep-alive checks are running.</div>
+          <section id="session-diagnostics" class="session-diagnostics" aria-labelledby="session-diagnostics-title" hidden>
+            <div class="session-diagnostics-heading">
+              <strong id="session-diagnostics-title">Local diagnostics</strong>
+              <button id="session-copy-diagnostics" type="button">Copy report</button>
+            </div>
+            <dl class="session-diagnostics-grid">
+              <div><dt>State</dt><dd id="session-diagnostic-state">Off</dd></div>
+              <div><dt>Scheduler</dt><dd id="session-diagnostic-scheduler">Inactive</dd></div>
+              <div><dt>Origin</dt><dd id="session-diagnostic-origin">—</dd></div>
+              <div><dt>Last trigger</dt><dd id="session-diagnostic-trigger">None</dd></div>
+              <div><dt>Attempted</dt><dd id="session-diagnostic-attempt">Not yet</dd></div>
+              <div><dt>Completed</dt><dd id="session-diagnostic-completed">Not yet</dd></div>
+              <div><dt>Result</dt><dd id="session-diagnostic-result">No result</dd></div>
+              <div><dt>Actions</dt><dd id="session-diagnostic-actions">None</dd></div>
+            </dl>
+            <p id="session-diagnostic-error" class="session-diagnostic-error" hidden></p>
+            <p class="session-diagnostics-note">Metadata only. Cookies, page content, and response bodies are never included.</p>
+          </section>
+        </section>
+
+        <p class="privacy-copy">MonoHeader <span id="popup-version">1.9.5</span> · Created by Monolith Consulting AB · Profiles, rules, and diagnostics stay in this browser.</p>
+      </div>
+    </main>
+    <script src="core.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

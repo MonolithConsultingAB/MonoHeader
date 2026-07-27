@@ -1,0 +1,29 @@
+name: Release check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run release:check
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monoheader-playwright-failure
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

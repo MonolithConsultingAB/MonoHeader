@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>MonoHeader</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+    <link rel="stylesheet" href="app.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <img class="brand-wordmark" src="icons/monoheader-wordmark.svg" width="184" height="40" alt="MonoHeader">
+          <img class="brand-icon" src="icons/monoheader-icon.svg" width="40" height="40" alt="" aria-hidden="true">
+          <small class="brand-tagline">Local header control</small>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-view="rules" aria-current="page">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h8"/><circle cx="17" cy="18" r="2"/></svg>
+            Rules
+          </button>
+          <button class="nav-item" type="button" data-view="profiles">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg>
+            Profiles
+          </button>
+          <button class="nav-item" type="button" data-view="activity">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+            Activity
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.65 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.38.37.72.66 1 .3.28.7.42 1.1.4h.1v4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+            Settings
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="privacy-note">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8.1 7 10 4.1-1.9 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+            <div><strong>Private by design</strong><span>No telemetry or cloud sync.</span></div>
+          </div>
+        <span class="creator">Created by Monolith Consulting AB</span>
+        <span class="version">Version 1.9.5</span>
+        </div>
+      </aside>
+
+      <main id="main-content" class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="view-eyebrow">Workspace</p>
+            <h1 id="view-title">Header rules</h1>
+          </div>
+          <div class="topbar-actions">
+            <span id="dirty-indicator" class="dirty-indicator" hidden>Unapplied changes</span>
+            <div id="runtime-status" class="status-pill" role="status">
+              <span class="status-dot"></span>
+              <span>Loading</span>
+            </div>
+            <button id="apply-button" class="button button-primary" type="button" disabled>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+              Apply changes
+            </button>
+          </div>
+        </header>
+
+        <section id="rules-view" class="view is-active" data-view-panel="rules" aria-labelledby="view-title">
+          <div class="metric-grid" id="rules-metrics"></div>
+
+          <div class="section-heading">
+            <div>
+              <h2>Rules in <span id="active-profile-heading">Default</span></h2>
+              <p>Only enabled rules in the active profile are deployed to Chrome.</p>
+            </div>
+            <button id="new-rule-button" class="button button-primary" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              New rule
+            </button>
+          </div>
+
+          <div class="toolbar">
+            <label class="search-field">
+              <span class="sr-only">Search rules</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+              <input id="rule-search" type="search" placeholder="Search by name, header, or URL pattern">
+            </label>
+            <label class="compact-field">
+              <span>Show</span>
+              <select id="rule-filter">
+                <option value="all">All rules</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+                <option value="request">Request headers</option>
+                <option value="response">Response headers</option>
+              </select>
+            </label>
+            <button id="rule-inspector-button" class="button button-secondary" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6M11 8v6"/></svg>
+              Inspect effective result
+            </button>
+          </div>
+
+          <div id="rules-list" class="rule-list" aria-live="polite"></div>
+        </section>
+
+        <section id="profiles-view" class="view" data-view-panel="profiles" aria-labelledby="view-title" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>Profiles</h2>
+              <p>Keep separate rule sets for development environments, clients, or projects.</p>
+            </div>
+            <button id="new-profile-button" class="button button-primary" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              New profile
+            </button>
+          </div>
+          <div id="profiles-grid" class="profile-grid"></div>
+        </section>
+
+        <section id="activity-view" class="view" data-view-panel="activity" aria-labelledby="view-title" hidden>
+          <div class="metric-grid" id="activity-metrics"></div>
+          <div class="activity-grid">
+            <article class="panel">
+              <div class="panel-heading">
+                <div><h2>Deployment history</h2><p>A local audit trail of successfully applied configurations.</p></div>
+                <button id="rollback-button" class="button button-secondary" type="button">Rollback last change</button>
+              </div>
+              <div id="deployment-list" class="timeline-list"></div>
+            </article>
+            <article class="panel">
+              <div class="panel-heading">
+                <div><h2>Diagnostics</h2><p>Compiler and runtime events stored only in this browser.</p></div>
+                <button id="clear-diagnostics-button" class="button button-ghost" type="button">Clear</button>
+              </div>
+              <div id="diagnostic-list" class="diagnostic-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="settings-view" class="view" data-view-panel="settings" aria-labelledby="view-title" hidden>
+          <div class="settings-grid">
+            <article class="panel settings-panel">
+              <div class="panel-heading"><div><h2>General</h2><p>Interface and local history preferences.</p></div></div>
+              <div class="setting-row">
+                <div><label for="theme-select">Appearance</label><p>Choose how MonoHeader looks on this device.</p></div>
+                <select id="theme-select">
+                  <option value="system">Use system setting</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div><label for="history-limit">Deployment history</label><p>Number of successful deployment records to keep locally.</p></div>
+                <input id="history-limit" type="number" min="5" max="100" step="1">
+              </div>
+              <div class="setting-row">
+                <div><label for="diagnostic-limit">Diagnostic history</label><p>Number of local diagnostic events to retain.</p></div>
+                <input id="diagnostic-limit" type="number" min="20" max="500" step="1">
+              </div>
+            </article>
+
+            <article class="panel settings-panel">
+              <div class="panel-heading"><div><h2>Backup and migration</h2><p>Portable JSON files are created and read entirely on this device.</p></div></div>
+              <div class="action-row">
+                <div><strong>Export configuration</strong><p>Download profiles and rules without history, diagnostics, or session-only values.</p></div>
+                <button id="export-button" class="button button-secondary" type="button">Export JSON</button>
+              </div>
+              <div class="action-row">
+                <div><strong>Import configuration</strong><p>Import MonoHeader JSON or compatible ModHeader profile exports.</p></div>
+                <button id="import-button" class="button button-secondary" type="button">Choose file</button>
+              </div>
+            </article>
+
+            <article class="panel settings-panel privacy-panel">
+              <div class="panel-heading"><div><h2>Privacy and permissions</h2><p>MonoHeader has no remote service, telemetry, or third-party network client.</p></div><span class="badge badge-success">Local configuration</span></div>
+              <ul class="privacy-list">
+                <li><span class="check-icon">✓</span><div><strong>No remote services</strong><p>No analytics, telemetry, accounts, cloud sync, update checks, or external API calls.</p></div></li>
+                <li><span class="check-icon">✓</span><div><strong>Local and session storage</strong><p>Configuration, keep-alive presets, and audit data use <code>chrome.storage.local</code>. Values marked session-only use in-memory <code>chrome.storage.session</code> and are never included in exports or rollback snapshots.</p></div></li>
+                <li><span class="check-icon">✓</span><div><strong>Purpose-limited access</strong><p>Website access is used only for enabled header rules and session keep-alive tabs selected by you.</p></div></li>
+                <li><span class="check-icon">✓</span><div><strong>No page inspection</strong><p>Keep-alive uses a transient packaged function. Optional activity mode dispatches events to the document itself but does not query elements or read page text, form data, passwords, cookies, or response bodies.</p></div></li>
+              </ul>
+              <p class="network-caveat">Request-header values are sent to matching destinations. Session keep-alive can send a credentialed GET to the current page or your configured same-origin HTTPS path, dispatch a synthetic document-level activity pulse, or do both. Response content is discarded, and nothing is sent to a MonoHeader or third-party service.</p>
+            </article>
+
+            <article class="panel settings-panel danger-panel">
+              <div class="panel-heading"><div><h2>Reset</h2><p>Remove every profile, rule, session-only value, keep-alive entry and site preset, then clear deployed DNR rules.</p></div></div>
+              <div class="action-row">
+                <div><strong>Restore factory defaults</strong><p>Export a backup first if you may need this configuration again.</p></div>
+                <button id="reset-button" class="button button-danger" type="button">Reset MonoHeader</button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="rule-inspector-dialog" class="dialog dialog-wide inspector-dialog" aria-labelledby="rule-inspector-title">
+      <form id="rule-inspector-form" method="dialog" novalidate>
+        <div class="dialog-header">
+          <div><p class="eyebrow">Local preview</p><h2 id="rule-inspector-title">Rule conflict inspector</h2></div>
+          <button class="icon-button" type="button" data-close-dialog="rule-inspector-dialog" aria-label="Close rule inspector">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="inspector-intro" role="note">
+            <strong>See what MonoHeader is expected to do</strong>
+            <p>Matches enabled rules in the active profile, orders them by priority, and explains the effective request and response header operations. Equal-priority conflicts are never guessed.</p>
+          </div>
+          <div class="form-grid inspector-context-grid">
+            <label class="field field-span-2">
+              <span class="field-label">Request URL <span class="help-tip" tabindex="0" role="note" aria-label="Request URL help: Enter the complete HTTP or HTTPS destination URL that Chrome will request." data-tooltip="Enter the complete HTTP or HTTPS destination URL that Chrome will request.">?</span></span>
+              <input id="inspector-url" type="url" required spellcheck="false" placeholder="https://api.example.com/v1">
+            </label>
+            <label class="field field-span-2">
+              <span class="field-label">Initiator domain <span class="optional">(optional)</span> <span class="help-tip" tabindex="0" role="note" aria-label="Initiator help: The website or frame starting the request. If blank, the request hostname is used." data-tooltip="The website or frame starting the request. If blank, the request hostname is used.">?</span></span>
+              <input id="inspector-initiator" spellcheck="false" placeholder="app.example.com">
+              <small>Defaults to the request hostname.</small>
+            </label>
+            <label class="field">
+              <span class="field-label">HTTP method</span>
+              <select id="inspector-method"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Resource type</span>
+              <select id="inspector-resource-type"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Domain relationship <span class="help-tip" tabindex="0" role="note" aria-label="Domain relationship help: Choose how Chrome should classify the destination relative to the initiating frame." data-tooltip="Choose how Chrome should classify the destination relative to the initiating frame.">?</span></span>
+              <select id="inspector-domain-type">
+                <option value="firstParty" selected>First party</option>
+                <option value="thirdParty">Third party</option>
+              </select>
+            </label>
+            <label class="check-field inspector-value-toggle">
+              <input id="inspector-show-values" type="checkbox">
+              <span><strong>Show configured values</strong><small>Values stay hidden by default.</small></span>
+            </label>
+          </div>
+          <div id="rule-inspector-error" class="form-alert" role="alert" hidden></div>
+          <div id="rule-inspector-result" class="inspector-result" aria-live="polite">
+            <div class="inspector-empty">
+              <strong>No inspection yet</strong>
+              <p>Enter a request context and choose Inspect rules.</p>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="button button-ghost" type="button" data-close-dialog="rule-inspector-dialog">Close</button>
+          <button id="run-rule-inspector" class="button button-primary" type="submit">Inspect rules</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="rule-dialog" class="dialog dialog-wide" aria-labelledby="rule-dialog-title">
+      <form id="rule-form" method="dialog" novalidate>
+        <div class="dialog-header">
+          <div><p class="eyebrow">Header rule</p><h2 id="rule-dialog-title">New rule</h2></div>
+          <button class="icon-button" type="button" data-close-dialog="rule-dialog" aria-label="Close dialog">×</button>
+        </div>
+        <div class="dialog-body">
+          <div id="rule-form-errors" class="form-alert" role="alert" hidden></div>
+          <div class="rule-application-note" role="note">
+            <strong>How application works</strong>
+            <p>Save rule updates the current draft. Nothing is deployed until you choose <strong>Apply changes</strong>; Chrome then applies enabled rules from the active profile using the match conditions below.</p>
+          </div>
+          <input id="rule-id" type="hidden">
+          <div class="form-grid form-grid-three">
+            <label class="field field-span-2">
+              <span class="field-label">Rule name</span>
+              <input id="rule-name" maxlength="120" required placeholder="Development API authentication">
+            </label>
+            <label class="field">
+              <span class="field-label">Priority <span class="help-tip" tabindex="0" role="note" aria-label="Priority help: Higher numbers are evaluated before lower numbers when matching rules overlap. Leave 100 unless you need deliberate ordering." data-tooltip="Higher numbers are evaluated before lower numbers when matching rules overlap. Leave 100 unless you need deliberate ordering.">?</span></span>
+              <input id="rule-priority" type="number" min="1" max="100000" step="1" required aria-describedby="priority-help">
+              <small id="priority-help">Higher numbers take precedence when rules overlap.</small>
+            </label>
+            <label class="field field-span-3">
+              <span class="field-label">Description <span class="optional">(optional)</span></span>
+              <input id="rule-description" maxlength="500" placeholder="What this rule is for">
+            </label>
+          </div>
+
+          <fieldset class="form-section">
+            <legend>Match requests</legend>
+            <div class="form-grid form-grid-three">
+              <label class="field">
+                <span class="field-label">Pattern type <span class="help-tip" tabindex="0" role="note" aria-label="Pattern type help: URL pattern uses Chrome's simpler URL-filter syntax. Regular expression uses RE2 and is more precise but easier to misconfigure." data-tooltip="URL pattern uses Chrome’s simpler URL-filter syntax. Regular expression uses RE2 and is more precise but easier to misconfigure.">?</span></span>
+                <select id="pattern-type">
+                  <option value="urlFilter">URL pattern</option>
+                  <option value="regexFilter">Regular expression (RE2)</option>
+                </select>
+              </label>
+              <label class="field field-span-2">
+                <span class="field-label">Pattern <span class="help-tip" tabindex="0" role="note" aria-label="Pattern help: This condition decides which request URLs qualify. Use an asterisk to match every URL." data-tooltip="This condition decides which request URLs qualify. Use * to match every URL.">?</span></span>
+                <input id="url-pattern" required spellcheck="false" placeholder="||api.example.com/" aria-describedby="url-pattern-help">
+                <small id="url-pattern-help">Chrome URL-filter syntax. Use <code>*</code> for every URL or <code>||example.com/</code> for a domain and its subdomains.</small>
+              </label>
+              <label class="check-field field-span-3"><input id="case-sensitive" type="checkbox"><span>Match URL with case sensitivity</span></label>
+              <label class="field">
+                <span class="field-label">Domain relationship <span class="help-tip" tabindex="0" role="note" aria-label="Domain relationship help: First party means the request destination shares a registrable domain with the page that initiated it. Third party means it does not." data-tooltip="First party means the request destination shares a registrable domain with the page that initiated it. Third party means it does not.">?</span></span>
+                <select id="domain-type">
+                  <option value="all">First and third party</option>
+                  <option value="firstParty">First party only</option>
+                  <option value="thirdParty">Third party only</option>
+                </select>
+                <small>Compared with the page that initiated the request.</small>
+              </label>
+              <label class="field">
+                <span class="field-label">Request domains <span class="optional">(optional)</span></span>
+                <input id="request-domains" spellcheck="false" placeholder="api.example.com, cdn.example.com">
+                <small>Comma-separated destination hostnames; each also matches subdomains.</small>
+              </label>
+              <label class="field">
+                <span class="field-label">Exclude request domains <span class="optional">(optional)</span></span>
+                <input id="excluded-request-domains" spellcheck="false" placeholder="public.example.com">
+                <small>Skip these destinations even when other conditions match.</small>
+              </label>
+              <label class="field">
+                <span class="field-label">Initiator domains <span class="optional">(optional)</span></span>
+                <input id="initiator-domains" spellcheck="false" placeholder="app.example.com">
+                <small>Match pages that initiate the request.</small>
+              </label>
+              <label class="field">
+                <span class="field-label">Exclude initiator domains <span class="optional">(optional)</span></span>
+                <input id="excluded-initiator-domains" spellcheck="false" placeholder="admin.example.com">
+                <small>Skip requests initiated by these pages.</small>
+              </label>
+            </div>
+            <div class="subfield">
+              <div class="subfield-label">
+                <span class="field-label">Resource types <span class="help-tip" tabindex="0" role="note" aria-label="Resource types help: Limit the rule to specific kinds of requests, such as page navigation, scripts, images, or fetch and XHR calls. At least one type is required." data-tooltip="Limit the rule to page navigation, scripts, images, fetch/XHR, or other request types. At least one type is required.">?</span></span>
+                <button id="toggle-resource-types" class="text-button" type="button">Select all</button>
+              </div>
+              <p class="subfield-help">Choose the kinds of requests this rule may modify.</p>
+              <div id="resource-type-options" class="check-grid"></div>
+            </div>
+            <div class="subfield">
+              <div class="subfield-label">
+                <span class="field-label">HTTP methods <span class="help-tip" tabindex="0" role="note" aria-label="HTTP methods help: Select methods only when the rule should be limited to requests such as GET, POST, or OPTIONS. No selection means every method." data-tooltip="Select methods only when the rule should be limited to GET, POST, OPTIONS, or another method. No selection means every method.">?</span></span>
+                <small>None selected means all methods.</small>
+              </div>
+              <div id="method-options" class="chip-options"></div>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-section">
+            <legend>Header modifications</legend>
+            <p class="section-help"><strong>Target</strong> chooses outgoing request or incoming response headers. <strong>Set</strong> replaces a value, <strong>Append</strong> adds to it where Chrome permits, and <strong>Remove</strong> deletes the header. Choose <strong>This session</strong> for sensitive values that must stay in memory and be re-entered after Chrome restarts, reloads, updates, or disables the extension.</p>
+            <div id="modification-list" class="modification-list"></div>
+            <button id="add-modification-button" class="button button-secondary" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              Add modification
+            </button>
+          </fieldset>
+
+          <label class="switch-row">
+            <span><strong>Rule enabled</strong><small>Disabled rules remain saved but are not deployed.</small></span>
+            <span class="switch"><input id="rule-enabled" type="checkbox"><span class="switch-track"></span></span>
+          </label>
+        </div>
+        <div class="dialog-footer">
+          <button class="button button-ghost" type="button" data-close-dialog="rule-dialog">Cancel</button>
+          <button id="save-rule-button" class="button button-primary" type="submit">Save rule</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="profile-dialog" class="dialog" aria-labelledby="profile-dialog-title">
+      <form id="profile-form" method="dialog" novalidate>
+        <div class="dialog-header">
+          <div><p class="eyebrow">Profile</p><h2 id="profile-dialog-title">New profile</h2></div>
+          <button class="icon-button" type="button" data-close-dialog="profile-dialog" aria-label="Close dialog">×</button>
+        </div>
+        <div class="dialog-body">
+          <input id="profile-id" type="hidden">
+          <label class="field">
+            <span class="field-label">Profile name</span>
+            <input id="profile-name" maxlength="80" required placeholder="Development">
+          </label>
+          <label class="field">
+            <span class="field-label">Description <span class="optional">(optional)</span></span>
+            <textarea id="profile-description" maxlength="500" rows="3" placeholder="Rules for the development environment"></textarea>
+          </label>
+          <fieldset class="color-field"><legend>Color</legend><div id="profile-color-options" class="color-options"></div></fieldset>
+        </div>
+        <div class="dialog-footer">
+          <button class="button button-ghost" type="button" data-close-dialog="profile-dialog">Cancel</button>
+          <button class="button button-primary" type="submit">Save profile</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
+      <form id="import-form" method="dialog">
+        <div class="dialog-header">
+          <div><p class="eyebrow">Migration</p><h2 id="import-dialog-title">Import configuration</h2></div>
+          <button class="icon-button" type="button" data-close-dialog="import-dialog" aria-label="Close dialog">×</button>
+        </div>
+        <div class="dialog-body">
+          <label class="file-drop" for="import-file">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v5h14v-5"/></svg>
+            <strong>Select a JSON export</strong>
+            <span>MonoHeader or compatible ModHeader profile JSON</span>
+            <input id="import-file" type="file" accept="application/json,.json">
+          </label>
+          <label class="check-field"><input id="import-enable" type="checkbox"><span>Enable the imported configuration immediately</span></label>
+          <div id="import-preview" class="import-preview" aria-live="polite" hidden></div>
+        </div>
+        <div class="dialog-footer">
+          <button class="button button-ghost" type="button" data-close-dialog="import-dialog">Cancel</button>
+          <button id="confirm-import-button" class="button button-primary" type="submit" disabled>Import and apply</button>
+        </div>
+      </form>
+    </dialog>
+
+    <template id="modification-template">
+      <div class="modification-row">
+        <span class="drag-handle" aria-hidden="true">⋮⋮</span>
+        <label class="field compact target-field">
+          <span class="field-label">Target</span>
+          <select data-mod-field="target"><option value="request">Request</option><option value="response">Response</option></select>
+        </label>
+        <label class="field compact operation-field">
+          <span class="field-label">Operation</span>
+          <select data-mod-field="operation"><option value="set">Set</option><option value="append">Append</option><option value="remove">Remove</option></select>
+        </label>
+        <label class="field compact header-field">
+          <span class="field-label">Header name</span>
+          <input data-mod-field="header" spellcheck="false" placeholder="Authorization">
+        </label>
+        <label class="field compact value-field">
+          <span class="field-label">Value</span>
+          <input data-mod-field="value" autocomplete="off" spellcheck="false" placeholder="Bearer …">
+        </label>
+        <label class="field compact lifetime-field">
+          <span class="field-label">Value lifetime <span class="help-tip" tabindex="0" role="note" aria-label="Value lifetime help: Persistent values remain in local configuration. This session keeps the value only in memory and deploys it through a Chrome session rule. It must be re-entered after Chrome restarts or after the extension reloads, updates, or is disabled." data-tooltip="Persistent values remain in local configuration. This session keeps the value only in memory and must be re-entered after Chrome restarts or after the extension reloads, updates, or is disabled.">?</span></span>
+          <select data-mod-field="lifetime">
+            <option value="persistent">Persistent</option>
+            <option value="session">This session</option>
+          </select>
+          <small class="session-value-status" aria-live="polite"></small>
+        </label>
+        <button class="icon-button remove-modification" type="button" aria-label="Remove modification">×</button>
+      </div>
+    </template>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="core.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
