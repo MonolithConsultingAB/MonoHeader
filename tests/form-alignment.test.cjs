@@ -41,6 +41,11 @@ test("workspace controls share fixed aligned heights", () => {
   assert.match(appCss, /\.field-label\s*\{[^}]*min-height:\s*16px;/s);
 });
 
+test("workspace hidden fields cannot be made visible by layout styles", () => {
+  assert.match(appCss, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important;/s);
+  assert.match(appHtml, /id="keepalive-target-path-field"[^>]*hidden/);
+});
+
 test("quick-add inputs inherit one shared popup layout", () => {
   assert.match(popupHtml, /id="quick-header-name"/);
   assert.match(popupHtml, /id="quick-header-value"/);

@@ -29,7 +29,7 @@ test("popup initializes in Chromium and exposes every primary control", async ({
   await popup.locator("#open-dashboard").click();
   const optionsPage = await optionsPagePromise;
   await optionsPage.waitForLoadState("domcontentloaded");
-  await expect(optionsPage).toHaveURL(`chrome-extension://${extensionId}/app.html`);
+  await expect(optionsPage).toHaveURL(`chrome-extension://${extensionId}/app.html#rules`);
   await expect(optionsPage.getByRole("heading", { name: "Header rules" })).toBeVisible();
   await optionsPage.close();
 });
@@ -123,6 +123,57 @@ test("per-site keep-alive presets load only for their exact HTTPS origin", async
   );
   await expect(reopened.locator("#session-mode")).toHaveValue("activity");
   await expect(reopened.locator("#session-interval")).toHaveValue("10");
+});
+
+test("automatic keep-alive site rules start, explain, and pause per tab", async ({
+  extensionContext,
+  extensionId,
+  openPopup,
+  targetPage,
+  testSite
+}) => {
+  const workspace = await extensionContext.newPage();
+  await workspace.goto(`chrome-extension://${extensionId}/app.html#keepalive`);
+  await expect(workspace.getByRole("heading", { name: "Keep-alive", exact: true })).toBeVisible();
+  await expect(workspace.locator("#keepalive-mode")).toHaveValue("activity");
+  await expect(workspace.locator("#keepalive-target-path-field")).toBeHidden();
+
+  await workspace.locator("#keepalive-name").fill("Local test site");
+  await workspace.locator("#keepalive-scope").selectOption("exact");
+  await workspace.locator("#keepalive-pattern").fill(testSite.origin);
+  await workspace.locator("#keepalive-auto-start").check();
+  await workspace.locator("#keepalive-test-url").fill(`${testSite.origin}/activity`);
+  await workspace.locator("#keepalive-test-button").click();
+  await expect(workspace.locator("#keepalive-test-result")).toContainText(
+    "Local test site"
+  );
+  await workspace.locator("#save-keepalive-preset-button").click();
+  await expect(workspace.locator(".keepalive-preset-card")).toContainText(
+    "Local test site"
+  );
+  await expect(targetPage.locator("#mousemove-count")).toHaveText("1");
+  await expect(targetPage.locator("#click-count")).toHaveText("1");
+
+  const popup = await openPopup();
+  await expect(popup.locator("#session-toggle")).toBeChecked();
+  await expect(popup.locator("#session-auto-rule")).toBeVisible();
+  await expect(popup.locator("#session-auto-rule-status")).toContainText(
+    "Local test site"
+  );
+  await popup.locator("#session-toggle").uncheck();
+  await expect(popup.locator("#session-status")).toContainText("Paused for this tab");
+  await expect(popup.locator("#session-auto-rule-status")).toContainText(
+    "Paused for this tab"
+  );
+  await popup.close();
+
+  await targetPage.goto(`${testSite.origin}/activity?still-same-origin=1`);
+  await expect(targetPage.locator("#mousemove-count")).toHaveText("0");
+  await targetPage.goto(`${testSite.alternateOrigin}/activity`);
+  await targetPage.goto(`${testSite.origin}/activity?returned=1`);
+  await expect(targetPage.locator("#mousemove-count")).toHaveText("1");
+  await expect(targetPage.locator("#click-count")).toHaveText("1");
+  await workspace.close();
 });
 
 test("quick add deploys a real DNR header and the popup switch removes it", async ({

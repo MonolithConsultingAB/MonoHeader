@@ -20,7 +20,7 @@ test("workspace offers an explained per-modification value lifetime", () => {
   assert.match(appHtml, /<option value="persistent">Persistent<\/option>/);
   assert.match(appHtml, /<option value="session">This session<\/option>/);
   assert.match(appHtml, /Value lifetime help:/);
-  assert.match(appHtml, /must be re-entered after Chrome restarts/);
+  assert.match(appHtml, /must be re-entered after the browser restarts/);
   assert.match(appJs, /value\.type = sessionOnly \? "password" : "text"/);
   assert.match(appJs, /Value required for this session/);
   assert.match(appJs, /sessionValueAvailable:/);
@@ -42,12 +42,12 @@ test("quick add can opt into session-only storage without exposing values in rul
 });
 
 test("sensitive values are paired with in-memory storage and DNR session rules", () => {
-  assert.match(background, /chrome\.storage\.session\.get\(SESSION_HEADER_VALUES_KEY\)/);
-  assert.match(background, /chrome\.storage\.session\.set\(/);
-  assert.match(background, /chrome\.storage\.session\.setAccessLevel\(\{ accessLevel: "TRUSTED_CONTEXTS" \}\)/);
-  assert.match(background, /chrome\.declarativeNetRequest\.getSessionRules\(\)/);
-  assert.match(background, /chrome\.declarativeNetRequest\.updateSessionRules\(/);
-  assert.match(background, /initializeAndReconcile\("Service worker started"\)/);
+  assert.match(background, /ExtensionAPI\.storage\.session\.get\(SESSION_HEADER_VALUES_KEY\)/);
+  assert.match(background, /ExtensionAPI\.storage\.session\.set\(/);
+  assert.match(background, /ExtensionAPI\.storage\.session\.setAccessLevel\(\{ accessLevel: "TRUSTED_CONTEXTS" \}\)/);
+  assert.match(background, /ExtensionAPI\.declarativeNetRequest\.getSessionRules\(\)/);
+  assert.match(background, /ExtensionAPI\.declarativeNetRequest\.updateSessionRules\(/);
+  assert.match(background, /initializeAndReconcile\("Background runtime started"\)/);
   assert.match(background, /Core\.sanitizeStateForLocalStorage\(normalized\)/);
   assert.match(core, /function sanitizeStateForLocalStorage\(/);
   assert.match(core, /function extractSessionHeaderValues\(/);
@@ -61,4 +61,3 @@ test("exports, rollback and privacy copy explicitly exclude session-only values"
   assert.match(privacy, /not written to MonoHeader's persistent configuration, rollback snapshot, diagnostics, deployment history, or exported JSON/);
   assert.match(privacy, /removes any stale session rule/);
 });
-

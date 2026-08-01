@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "MonoHeader",
   "short_name": "MonoHeader",
+  "author": "Monolith Consulting AB",
   "version": "1.11.1",
-  "minimum_chrome_version": "120",
   "description": "Create and manage local HTTP request and response header rules. Created by Monolith Consulting AB.",
   "permissions": [
     "storage",
@@ -15,7 +15,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "platform.js",
+      "core.js",
+      "background.js"
+    ]
   },
   "action": {
     "default_title": "MonoHeader",
@@ -33,8 +37,26 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "options_page": "app.html",
+  "options_ui": {
+    "page": "app.html",
+    "open_in_tab": true
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none';"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "monoheader@monolithconsulting.se",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "websiteContent"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
   }
 }

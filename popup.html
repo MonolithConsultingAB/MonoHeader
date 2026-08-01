@@ -61,12 +61,12 @@
               <input id="quick-header-session-only" type="checkbox">
               <span>
                 <strong>This browser session only</strong>
-                <small>Keep the value in memory and exclude it from backups. Re-enter it after Chrome restarts.</small>
+                <small>Keep the value in memory and exclude it from backups. Re-enter it after the browser restarts.</small>
               </span>
             </label>
             <p class="global-warning">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg>
-              Chrome sends this value to every supported destination while the rule is enabled.
+              The browser sends this value to every supported destination while the rule is enabled.
             </p>
             <div id="quick-add-status" class="quick-add-status" role="status" aria-live="polite" hidden></div>
             <button id="quick-add-button" class="quick-add-button" type="submit">Add &amp; apply</button>
@@ -138,14 +138,24 @@
               <button id="session-preset-delete" class="is-danger" type="button" aria-describedby="session-preset-help" disabled>Delete</button>
             </div>
           </div>
-          <p id="session-preset-help" class="session-preset-help">Stores these settings for this exact HTTPS site. Presets never start keep-alive automatically.</p>
+          <p id="session-preset-help" class="session-preset-help">Stores these settings for this exact HTTPS origin. Use Keep-alive settings to make exact origins, domains, or wildcards start automatically.</p>
+          <div id="session-auto-rule" class="session-auto-rule" hidden>
+            <div>
+              <strong>Automatic site rule</strong>
+              <span id="session-auto-rule-status">A matching rule manages this tab.</span>
+            </div>
+            <div class="session-auto-rule-actions">
+              <button id="session-auto-rule-disable" type="button">Disable auto-start</button>
+              <button id="session-auto-rule-manage" type="button">Manage sites</button>
+            </div>
+          </div>
           <p id="session-disclosure" class="session-disclosure">Dispatches synthetic mousemove and click events to the document itself. It never selects or activates a page element, but sites may ignore untrusted events.</p>
           <div class="session-actions" role="group" aria-label="Keep-alive actions">
             <button id="session-test-button" type="button" aria-describedby="session-action-help" title="Run the selected method once without enabling the schedule">Test now</button>
             <button id="session-diagnostics-button" type="button" aria-expanded="false" aria-controls="session-diagnostics">Diagnostics</button>
             <button id="session-reset-button" class="is-danger" type="button" aria-describedby="session-action-help" title="Stop and clear keep-alive for this tab only">Reset tab</button>
           </div>
-          <p id="session-action-help" class="session-action-help">Test runs once without starting the schedule. Reset affects only this tab and keeps its site preset.</p>
+          <p id="session-action-help" class="session-action-help">Test runs once without starting the schedule. Reset affects only this tab and pauses an automatic rule until the tab leaves this site.</p>
           <div class="session-timing">
             <div>
               <span id="session-last-label">Last pulse dispatched</span>
@@ -177,9 +187,10 @@
           </section>
         </section>
 
-        <p class="privacy-copy">MonoHeader <span id="popup-version">1.9.5</span> · Created by Monolith Consulting AB · Profiles, rules, and diagnostics stay in this browser.</p>
+        <p class="privacy-copy">MonoHeader <span id="popup-version">1.11.1</span> · Created by Monolith Consulting AB · Profiles, rules, and diagnostics stay in this browser.</p>
       </div>
     </main>
+    <script src="platform.js"></script>
     <script src="core.js"></script>
     <script src="popup.js"></script>
   </body>

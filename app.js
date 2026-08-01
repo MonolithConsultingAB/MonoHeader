@@ -1,8 +1,12 @@
 "use strict";
 
+const ExtensionAPI = globalThis.MonoHeaderAPI || globalThis.browser || globalThis.chrome;
+const BrowserName = globalThis.MonoHeaderPlatform && globalThis.MonoHeaderPlatform.browserName || "Browser";
+
 const Core = globalThis.MonoHeaderCore;
 const $ = (selector, root) => (root || document).querySelector(selector);
 const $$ = (selector, root) => [...(root || document).querySelectorAll(selector)];
+const SESSION_STORAGE_KEY = "monoHeaderSessionKeepAlive";
 
 let persistedState = null;
 let draftState = null;
@@ -14,10 +18,14 @@ let pendingImport = null;
 let editingRuleId = null;
 let editingProfileId = null;
 let lastInspection = null;
+let keepAliveConfig = null;
+let keepAliveBusy = false;
+let keepAliveTestResult = null;
 
 const viewMeta = {
   rules: ["Workspace", "Header rules"],
   profiles: ["Workspace", "Profiles"],
+  keepalive: ["Sessions", "Keep-alive"],
   activity: ["Observability", "Activity"],
   settings: ["Configuration", "Settings"]
 };
@@ -46,11 +54,18 @@ async function initialize() {
   buildFormOptions();
   bindEvents();
   try {
-    const response = await sendMessage("GET_STATE");
+    const [response, keepAliveResponse] = await Promise.all([
+      sendMessage("GET_STATE"),
+      sendMessage("GET_SESSION_KEEP_ALIVE_CONFIG")
+    ]);
     persistedState = Core.normalizeState(response.state);
     draftState = Core.clone(persistedState);
     runtime = response.runtime;
+    keepAliveConfig = keepAliveResponse.sessionKeepAliveConfig;
     applyTheme(draftState.settings.theme);
+    const requestedView = String(globalThis.location.hash || "").replace(/^#/, "");
+    if (viewMeta[requestedView]) activeView = requestedView;
+    setView(activeView);
     render();
   } catch (error) {
     showToast("Could not start MonoHeader", error.message, "error");
@@ -131,6 +146,12 @@ function bindEvents() {
     if (lastInspection) renderRuleInspection(lastInspection);
   });
   $("#new-profile-button").addEventListener("click", () => openProfileDialog());
+  $("#new-keepalive-preset-button").addEventListener("click", resetKeepAliveEditor);
+  $("#cancel-keepalive-preset-button").addEventListener("click", resetKeepAliveEditor);
+  $("#keepalive-preset-form").addEventListener("submit", saveKeepAlivePreset);
+  $("#keepalive-scope").addEventListener("change", updateKeepAliveEditorVisibility);
+  $("#keepalive-mode").addEventListener("change", updateKeepAliveEditorVisibility);
+  $("#keepalive-pattern-test-form").addEventListener("submit", testKeepAlivePattern);
   $("#rule-form").addEventListener("submit", saveRuleFromForm);
   $("#profile-form").addEventListener("submit", saveProfileFromForm);
   $("#add-modification-button").addEventListener("click", () => addModificationRow(Core.createModification()));
@@ -170,6 +191,10 @@ function bindEvents() {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (draftState && draftState.settings.theme === "system") applyTheme("system");
   });
+  ExtensionAPI.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes || !changes[SESSION_STORAGE_KEY]) return;
+    refreshKeepAliveConfig();
+  });
 }
 
 function setView(view) {
@@ -188,6 +213,9 @@ function setView(view) {
   });
   $("#view-eyebrow").textContent = viewMeta[view][0];
   $("#view-title").textContent = viewMeta[view][1];
+  if (globalThis.location.hash !== `#${view}`) {
+    globalThis.history.replaceState(null, "", `#${view}`);
+  }
   render();
 }
 
@@ -197,6 +225,7 @@ function render() {
   renderMetrics();
   renderRules();
   renderProfiles();
+  renderKeepAlive();
   renderActivity();
   renderSettings();
 }
@@ -241,7 +270,7 @@ function renderMetrics() {
     { label: "Saved rules", value: rules.length, detail: `${enabledRules.length} enabled` },
     { label: "Header changes", value: modifications, detail: `${requestMods} request · ${responseMods} response` },
     {
-      label: "Chrome runtime",
+      label: `${BrowserName} runtime`,
       value: runtime ? runtime.deployedRuleCount : "—",
       detail: unavailableSessionValues
         ? `${unavailableSessionValues} session value${unavailableSessionValues === 1 ? "" : "s"} needed`
@@ -469,6 +498,338 @@ function renderProfiles() {
     card.append(header, title, description, footer);
     return card;
   }));
+}
+
+function renderKeepAlive() {
+  const metrics = $("#keepalive-metrics");
+  const list = $("#keepalive-preset-list");
+  if (!metrics || !list) return;
+  if (!keepAliveConfig) {
+    metrics.replaceChildren(...[
+      { label: "Site rules", value: "—", detail: "Loading local configuration" },
+      { label: "Automatic tabs", value: "—", detail: "Loading" },
+      { label: "Paused tabs", value: "—", detail: "Loading" },
+      { label: "Default method", value: "Pulse", detail: "No page content read" }
+    ].map(createMetricCard));
+    list.replaceChildren(createMiniEmpty("Loading keep-alive site rules…"));
+    return;
+  }
+  metrics.replaceChildren(...[
+    {
+      label: "Site rules",
+      value: keepAliveConfig.presets.length,
+      detail: `${keepAliveConfig.presets.filter((preset) => preset.autoStart).length} automatic`
+    },
+    {
+      label: "Automatic tabs",
+      value: keepAliveConfig.automaticTabCount,
+      detail: "Currently scheduled"
+    },
+    {
+      label: "Paused tabs",
+      value: keepAliveConfig.pausedTabCount,
+      detail: "Until they leave the site"
+    },
+    {
+      label: "Precedence",
+      value: "Exact",
+      detail: "Then most-specific wildcard"
+    }
+  ].map(createMetricCard));
+
+  if (keepAliveConfig.presets.length === 0) {
+    list.replaceChildren(createEmptyState(
+      "No keep-alive site rules",
+      "Add an exact origin, a domain pattern, a subdomain wildcard, or all HTTPS sites.",
+      "New site rule",
+      resetKeepAliveEditor
+    ));
+  } else {
+    list.replaceChildren(...keepAliveConfig.presets.map(createKeepAlivePresetCard));
+  }
+  $("#new-keepalive-preset-button").disabled = keepAliveBusy;
+  $("#save-keepalive-preset-button").disabled = keepAliveBusy;
+  $("#cancel-keepalive-preset-button").disabled = keepAliveBusy;
+  $("#keepalive-test-button").disabled = keepAliveBusy;
+  updateKeepAliveEditorVisibility();
+  renderKeepAliveTestResult();
+}
+
+function createKeepAlivePresetCard(preset) {
+  const card = document.createElement("article");
+  card.className = `keepalive-preset-card${preset.autoStart ? " is-automatic" : ""}`;
+  const heading = document.createElement("div");
+  heading.className = "keepalive-preset-heading";
+  const titleGroup = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = preset.name;
+  const pattern = document.createElement("code");
+  pattern.textContent = preset.displayPattern;
+  pattern.title = preset.displayPattern;
+  titleGroup.append(title, pattern);
+  const toggle = createSwitch(preset.autoStart, `Always activate ${preset.name}`);
+  toggle.input.disabled = keepAliveBusy;
+  toggle.input.addEventListener("change", () => toggleKeepAlivePreset(preset, toggle.input.checked));
+  heading.append(titleGroup, toggle.wrapper);
+
+  const badges = document.createElement("div");
+  badges.className = "keepalive-preset-badges";
+  const stateBadge = document.createElement("span");
+  stateBadge.className = preset.autoStart ? "badge badge-success" : "badge";
+  stateBadge.textContent = preset.autoStart ? "Always active" : "Saved only";
+  const modeBadge = document.createElement("span");
+  modeBadge.className = "badge";
+  modeBadge.textContent = formatKeepAliveMode(preset.mode);
+  const intervalBadge = document.createElement("span");
+  intervalBadge.className = "badge";
+  intervalBadge.textContent = `${preset.intervalMinutes} min`;
+  badges.append(stateBadge, modeBadge, intervalBadge);
+
+  const detail = document.createElement("p");
+  const exclusions = preset.excludedHosts.length
+    ? ` · ${preset.excludedHosts.length} exclusion${preset.excludedHosts.length === 1 ? "" : "s"}`
+    : "";
+  detail.textContent = `${preset.activeTabCount} active · ${preset.effectiveTabCount} effective open tab${preset.effectiveTabCount === 1 ? "" : "s"}${exclusions}`;
+
+  const actions = document.createElement("div");
+  actions.className = "keepalive-preset-actions";
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "button button-secondary";
+  edit.textContent = "Edit";
+  edit.disabled = keepAliveBusy;
+  edit.addEventListener("click", () => editKeepAlivePreset(preset));
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "button button-ghost keepalive-delete";
+  remove.textContent = "Delete";
+  remove.disabled = keepAliveBusy;
+  remove.addEventListener("click", () => deleteKeepAlivePreset(preset));
+  actions.append(edit, remove);
+  card.append(heading, badges, detail, actions);
+  return card;
+}
+
+function resetKeepAliveEditor() {
+  $("#keepalive-preset-form").reset();
+  $("#keepalive-original-key").value = "";
+  $("#keepalive-scope").value = "exact";
+  $("#keepalive-mode").value = "activity";
+  $("#keepalive-interval").value = "10";
+  $("#keepalive-editor-title").textContent = "New site rule";
+  $("#keepalive-editor-copy").textContent = "Choose which HTTPS sites should use keep-alive.";
+  keepAliveTestResult = null;
+  updateKeepAliveEditorVisibility();
+  renderKeepAliveTestResult();
+  $("#keepalive-name").focus();
+}
+
+function editKeepAlivePreset(preset) {
+  $("#keepalive-original-key").value = preset.key;
+  $("#keepalive-name").value = preset.name;
+  $("#keepalive-scope").value = preset.scope;
+  $("#keepalive-pattern").value = preset.scope === "global" ? "" : preset.pattern;
+  $("#keepalive-mode").value = preset.mode;
+  $("#keepalive-interval").value = String(preset.intervalMinutes);
+  $("#keepalive-target-path").value = preset.targetPath;
+  $("#keepalive-exclusions").value = preset.excludedHosts.join("\n");
+  $("#keepalive-auto-start").checked = preset.autoStart;
+  $("#keepalive-editor-title").textContent = `Edit ${preset.name}`;
+  $("#keepalive-editor-copy").textContent = "Changes are saved locally and reconciled across matching open tabs.";
+  keepAliveTestResult = null;
+  updateKeepAliveEditorVisibility();
+  $("#keepalive-name").focus();
+}
+
+function updateKeepAliveEditorVisibility() {
+  const scope = $("#keepalive-scope").value;
+  const mode = $("#keepalive-mode").value;
+  const patternField = $("#keepalive-pattern-field");
+  const pattern = $("#keepalive-pattern");
+  const patternHelp = $("#keepalive-pattern-help");
+  patternField.hidden = scope === "global";
+  pattern.required = scope !== "global";
+  $("#keepalive-exclusions-field").hidden = scope === "exact";
+  $("#keepalive-target-path-field").hidden = mode === "activity";
+  if (scope === "exact") {
+    pattern.placeholder = "https://portal.example.com";
+    patternHelp.textContent = "Include the complete HTTPS origin, including a non-default port when needed.";
+  } else if (scope === "domain") {
+    pattern.placeholder = "example.com";
+    patternHelp.textContent = "Matches the base domain and every subdomain.";
+  } else if (scope === "subdomains") {
+    pattern.placeholder = "example.com";
+    patternHelp.textContent = "Matches subdomains such as app.example.com, but not example.com itself.";
+  } else {
+    patternHelp.textContent = "Matches every HTTPS website.";
+  }
+}
+
+function collectKeepAliveDraft() {
+  const scope = $("#keepalive-scope").value;
+  return {
+    name: $("#keepalive-name").value.trim(),
+    scope,
+    pattern: scope === "global" ? "*" : $("#keepalive-pattern").value.trim(),
+    mode: $("#keepalive-mode").value,
+    intervalMinutes: Number($("#keepalive-interval").value),
+    targetPath: $("#keepalive-mode").value === "activity"
+      ? ""
+      : $("#keepalive-target-path").value.trim(),
+    excludedHosts: scope === "exact"
+      ? []
+      : $("#keepalive-exclusions").value.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean),
+    autoStart: $("#keepalive-auto-start").checked
+  };
+}
+
+async function saveKeepAlivePreset(event) {
+  event.preventDefault();
+  if (keepAliveBusy) return;
+  const form = $("#keepalive-preset-form");
+  if (!form.reportValidity()) return;
+  const preset = collectKeepAliveDraft();
+  const confirmGlobal = preset.scope !== "global" || !preset.autoStart || globalThis.confirm(
+    "Always run keep-alive on every HTTPS site you open? Exact and wildcard rules can still override this global rule."
+  );
+  if (!confirmGlobal) return;
+  keepAliveBusy = true;
+  renderKeepAlive();
+  try {
+    const response = await sendMessage("SAVE_SESSION_KEEP_ALIVE_CONFIG", {
+      preset,
+      originalKey: $("#keepalive-original-key").value,
+      confirmGlobal
+    });
+    keepAliveConfig = response.sessionKeepAliveConfig;
+    const savedName = preset.name;
+    resetKeepAliveEditor();
+    showToast("Keep-alive site rule saved", `${savedName} was reconciled across open tabs.`);
+  } catch (error) {
+    showToast("Could not save site rule", error.message, "error");
+  } finally {
+    keepAliveBusy = false;
+    renderKeepAlive();
+  }
+}
+
+async function toggleKeepAlivePreset(preset, enabled) {
+  if (keepAliveBusy) return;
+  const confirmGlobal = !enabled || preset.scope !== "global" || globalThis.confirm(
+    "Always run keep-alive on every HTTPS site you open?"
+  );
+  if (!confirmGlobal) {
+    renderKeepAlive();
+    return;
+  }
+  keepAliveBusy = true;
+  renderKeepAlive();
+  try {
+    const response = await sendMessage("SET_SESSION_KEEP_ALIVE_PRESET_AUTO_START", {
+      presetKey: preset.key,
+      enabled,
+      confirmGlobal
+    });
+    keepAliveConfig = response.sessionKeepAliveConfig;
+    showToast(
+      enabled ? "Automatic keep-alive enabled" : "Automatic keep-alive disabled",
+      enabled ? `${preset.name} now starts on matching tabs.` : `${preset.name} remains saved but will not auto-start.`
+    );
+  } catch (error) {
+    showToast("Could not update site rule", error.message, "error");
+  } finally {
+    keepAliveBusy = false;
+    renderKeepAlive();
+  }
+}
+
+async function deleteKeepAlivePreset(preset) {
+  if (keepAliveBusy || !globalThis.confirm(`Delete the keep-alive rule “${preset.name}”?`)) return;
+  keepAliveBusy = true;
+  renderKeepAlive();
+  try {
+    const response = await sendMessage("DELETE_SESSION_KEEP_ALIVE_CONFIG", {
+      presetKey: preset.key
+    });
+    keepAliveConfig = response.sessionKeepAliveConfig;
+    if ($("#keepalive-original-key").value === preset.key) resetKeepAliveEditor();
+    showToast("Keep-alive site rule deleted", `${preset.name} was removed.`);
+  } catch (error) {
+    showToast("Could not delete site rule", error.message, "error");
+  } finally {
+    keepAliveBusy = false;
+    renderKeepAlive();
+  }
+}
+
+async function testKeepAlivePattern(event) {
+  event.preventDefault();
+  if (keepAliveBusy) return;
+  const url = $("#keepalive-test-url").value.trim();
+  if (!url) return;
+  const draft = ($("#keepalive-scope").value === "global" || $("#keepalive-pattern").value.trim())
+    ? {
+        ...collectKeepAliveDraft(),
+        originalKey: $("#keepalive-original-key").value
+      }
+    : null;
+  keepAliveBusy = true;
+  keepAliveTestResult = { pending: true };
+  renderKeepAlive();
+  try {
+    const response = await sendMessage("TEST_SESSION_KEEP_ALIVE_PATTERN", {
+      url,
+      draftPreset: draft
+    });
+    keepAliveTestResult = response.sessionPatternTest;
+  } catch (error) {
+    keepAliveTestResult = { error: error.message };
+  } finally {
+    keepAliveBusy = false;
+    renderKeepAlive();
+  }
+}
+
+function renderKeepAliveTestResult() {
+  const result = $("#keepalive-test-result");
+  if (!result) return;
+  result.className = "keepalive-test-result";
+  if (!keepAliveTestResult) {
+    result.textContent = "Enter an HTTPS URL to see which rule wins.";
+  } else if (keepAliveTestResult.pending) {
+    result.textContent = "Testing the URL against local site rules…";
+    result.classList.add("is-pending");
+  } else if (keepAliveTestResult.error) {
+    result.textContent = keepAliveTestResult.error;
+    result.classList.add("is-error");
+  } else if (!keepAliveTestResult.matched) {
+    result.textContent = keepAliveTestResult.explanation;
+  } else {
+    const automatic = keepAliveTestResult.effectivePreset.autoStart
+      ? "Automatic keep-alive is enabled."
+      : "The rule matches, but automatic start is off.";
+    result.textContent = `${keepAliveTestResult.explanation} ${automatic}`;
+    result.classList.add(keepAliveTestResult.effectivePreset.autoStart ? "is-success" : "is-warning");
+  }
+}
+
+async function refreshKeepAliveConfig() {
+  if (keepAliveBusy || !draftState) return;
+  try {
+    const response = await sendMessage("GET_SESSION_KEEP_ALIVE_CONFIG");
+    keepAliveConfig = response.sessionKeepAliveConfig;
+    renderKeepAlive();
+  } catch (_error) {
+    // The next explicit action will surface a service-worker error.
+  }
+}
+
+function formatKeepAliveMode(mode) {
+  return {
+    activity: "Activity pulse",
+    request: "Request path",
+    both: "Request + pulse"
+  }[mode] || "Activity pulse";
 }
 
 function renderActivity() {
@@ -712,7 +1073,7 @@ function updateModificationHelp(row) {
   const operation = $('[data-mod-field="operation"]', row).value;
   const header = $('[data-mod-field="header"]', row);
   if (target === "request" && operation === "append") {
-    header.title = `Chrome permits request-header append for: ${[...Core.REQUEST_APPEND_ALLOWLIST].join(", ")}`;
+    header.title = `MonoHeader permits portable request-header append for: ${[...Core.REQUEST_APPEND_ALLOWLIST].join(", ")}`;
   } else {
     header.removeAttribute("title");
   }
@@ -727,7 +1088,7 @@ function updatePatternGuidance() {
   if (regex) {
     help.append("RE2 syntax. Anchor with ", createInlineCode("^"), " or ", createInlineCode("$"), " when the start or end must match exactly.");
   } else {
-    help.append("Chrome URL-filter syntax. Use ", createInlineCode("*"), " for every URL or ", createInlineCode("||example.com/"), " for a domain and its subdomains.");
+    help.append("DNR URL-filter syntax. Use ", createInlineCode("*"), " for every URL or ", createInlineCode("||example.com/"), " for a domain and its subdomains.");
   }
 }
 
@@ -955,7 +1316,7 @@ async function applyDraft() {
     if (response.warnings && response.warnings.length) {
       showToast("Changes applied with warnings", response.warnings.join("\n"), "warning");
     } else {
-      showToast("Changes applied", `${runtime.deployedRuleCount} rule${runtime.deployedRuleCount === 1 ? "" : "s"} active in Chrome.`);
+      showToast("Changes applied", `${runtime.deployedRuleCount} rule${runtime.deployedRuleCount === 1 ? "" : "s"} active in ${BrowserName}.`);
     }
   } catch (error) {
     showToast("Could not apply changes", error.message, "error");
@@ -1193,7 +1554,7 @@ function renderRuleInspection(inspection) {
   }
   if (dirty) {
     content.push(createInspectorNotice(
-      "This preview includes unapplied draft changes. Chrome may still be running the last applied configuration.",
+      `This preview includes unapplied draft changes. ${BrowserName} may still be running the last applied configuration.`,
       "info"
     ));
   }
@@ -1411,7 +1772,7 @@ function createInspectorMatchList(rules) {
 function createInspectorCaveat() {
   const note = document.createElement("p");
   note.className = "inspector-caveat";
-  note.textContent = "Local preview only. Chrome’s DNR engine makes the final match decision, equal-priority order is not guaranteed, and other extensions may also modify these headers.";
+  note.textContent = `Local preview only. ${BrowserName}’s DNR engine makes the final match decision, equal-priority order is not guaranteed, and other extensions may also modify these headers.`;
   return note;
 }
 
@@ -1506,10 +1867,10 @@ function clamp(value, min, max) {
 }
 
 async function sendMessage(action, payload) {
-  const response = await chrome.runtime.sendMessage({ action, ...(payload || {}) });
+  const response = await ExtensionAPI.runtime.sendMessage({ action, ...(payload || {}) });
   if (!response || !response.ok) {
     const error = response && response.error;
-    const message = error && error.message || "The MonoHeader service worker did not respond.";
+    const message = error && error.message || "The MonoHeader background runtime did not respond.";
     const thrown = new Error(message);
     thrown.name = error && error.name || "Error";
     thrown.validation = error && error.validation;
@@ -1539,7 +1900,7 @@ function renderFatal(error) {
   const main = $("#main-content");
   const empty = createEmptyState(
     "MonoHeader could not start",
-    `Reload the extension from chrome://extensions. Details: ${error.message}`
+    `Reload the extension from ${BrowserName === "Firefox" ? "about:debugging" : "chrome://extensions"}. Details: ${error.message}`
   );
   main.replaceChildren(empty);
 }

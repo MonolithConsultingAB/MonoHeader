@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const requiredFiles = [
   "manifest.json",
+  "platform.js",
   "background.js",
   "core.js",
   "app.html",
@@ -78,6 +79,7 @@ for (const relativePath of ["icons/monoheader-wordmark.svg", "icons/monoheader-i
 }
 
 const backgroundSource = await readFile(join(projectRoot, "background.js"), "utf8");
+const platformSource = await readFile(join(projectRoot, "platform.js"), "utf8");
 const coreSource = await readFile(join(projectRoot, "core.js"), "utf8");
 const appHtmlSource = await readFile(join(projectRoot, "app.html"), "utf8");
 const popupHtmlSource = await readFile(join(projectRoot, "popup.html"), "utf8");
@@ -89,14 +91,17 @@ for (const [name, source, pattern] of [
   if (!pattern.test(source)) errors.push(`${name} does not display manifest version ${manifest.version}.`);
 }
 for (const [source, pattern, description] of [
-  [backgroundSource, /chrome\.storage\.session\.get\(SESSION_HEADER_VALUES_KEY\)/, "load sensitive values from in-memory session storage"],
-  [backgroundSource, /chrome\.storage\.session\.set\(/, "write sensitive values to in-memory session storage"],
-  [backgroundSource, /chrome\.storage\.session\.setAccessLevel\(\{ accessLevel: "TRUSTED_CONTEXTS" \}\)/, "restrict session storage to trusted extension contexts"],
-  [backgroundSource, /chrome\.declarativeNetRequest\.getSessionRules\(\)/, "inspect DNR session rules"],
-  [backgroundSource, /chrome\.declarativeNetRequest\.updateSessionRules\(/, "deploy sensitive values through DNR session rules"],
-  [backgroundSource, /initializeAndReconcile\("Service worker started"\)/, "reconcile stale session rules whenever the service worker starts"],
-  [backgroundSource, /async function saveSessionPresetForTab/, "save exact-origin keep-alive presets without starting a schedule"],
-  [backgroundSource, /return \{ version: SESSION_STORE_VERSION, entries, presets \}/, "retain versioned keep-alive presets alongside active tabs"],
+  [backgroundSource, /ExtensionAPI\.storage\.session\.get\(SESSION_HEADER_VALUES_KEY\)/, "load sensitive values from in-memory session storage"],
+  [backgroundSource, /ExtensionAPI\.storage\.session\.set\(/, "write sensitive values to in-memory session storage"],
+  [backgroundSource, /ExtensionAPI\.storage\.session\.setAccessLevel\(\{ accessLevel: "TRUSTED_CONTEXTS" \}\)/, "restrict session storage to trusted extension contexts"],
+  [backgroundSource, /ExtensionAPI\.declarativeNetRequest\.getSessionRules\(\)/, "inspect DNR session rules"],
+  [backgroundSource, /ExtensionAPI\.declarativeNetRequest\.updateSessionRules\(/, "deploy sensitive values through DNR session rules"],
+  [backgroundSource, /initializeAndReconcile\("Background runtime started"\)/, "reconcile stale session rules whenever the background runtime starts"],
+  [backgroundSource, /async function saveSessionPresetForTab/, "save exact-origin keep-alive presets"],
+  [backgroundSource, /return \{ version: SESSION_STORE_VERSION, entries, presets, pauses \}/, "retain versioned keep-alive presets and per-tab pauses"],
+  [backgroundSource, /function findEffectiveSessionPreset/, "resolve one effective keep-alive rule per tab"],
+  [backgroundSource, /function compareSessionPresetSpecificity/, "apply deterministic exact and wildcard precedence"],
+  [backgroundSource, /async function reconcileSessionKeepAliveForTab/, "reconcile automatic keep-alive when tabs load or navigate"],
   [backgroundSource, /Core\.sanitizeStateForLocalStorage\(normalized\)/, "scrub session-only values before local persistence"],
   [coreSource, /function sanitizeStateForLocalStorage\(/, "provide local-state redaction"],
   [coreSource, /const normalized = sanitizeStateForLocalStorage\(state\)/, "redact configuration snapshots and exports"]
@@ -119,12 +124,13 @@ const presetSaveSource = presetSaveStart >= 0 && presetSaveEnd > presetSaveStart
   : "";
 if (!presetSaveSource) {
   errors.push("background.js is missing exact-origin keep-alive preset persistence.");
-} else if (/ensureSessionAlarm|executeSessionKeepAliveCheck|chrome\.scripting/.test(presetSaveSource)) {
-  errors.push("Saving a keep-alive preset must not schedule an alarm or inject a page action.");
+} else if (/executeSessionKeepAliveCheck|ExtensionAPI\.scripting|setSessionKeepAliveForTab/.test(presetSaveSource)) {
+  errors.push("Saving a popup preset must not directly inject a page action or manually enable a tab.");
 }
 
 const runtimeSources = [
   ["background.js", backgroundRuntime],
+  ["platform.js", platformSource],
   ["core.js", coreSource],
   ["app.js", await readFile(join(projectRoot, "app.js"), "utf8")],
   ["popup.js", await readFile(join(projectRoot, "popup.js"), "utf8")]
@@ -176,9 +182,9 @@ for (const [pattern, description] of [
 for (const [pattern, description] of [
   [/globalThis\.document\.dispatchEvent\(new MouseEvent\("mousemove"/, "dispatch a document-level mousemove pulse"],
   [/globalThis\.document\.dispatchEvent\(new MouseEvent\("click"/, "dispatch a document-level click pulse"],
-  [/func:\s*runMonoHeaderSessionCheck/, "pass the packaged function to chrome.scripting"]
+  [/func:\s*runMonoHeaderSessionCheck/, "pass the packaged function to the scripting API"]
 ]) {
-  const source = description.includes("chrome.scripting") ? backgroundRuntime : injectedSessionCheck;
+  const source = description.includes("scripting API") ? backgroundRuntime : injectedSessionCheck;
   if (!pattern.test(source)) errors.push(`The session implementation must ${description}.`);
 }
 

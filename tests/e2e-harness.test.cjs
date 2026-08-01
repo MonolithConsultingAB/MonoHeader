@@ -42,6 +42,10 @@ test("browser scenarios cover popup, DNR, conflict inspection, keep-alive lifecy
   assert.match(scenarios, /#session-preset-save/);
   assert.match(scenarios, /#session-preset-delete/);
   assert.match(scenarios, /keepAliveRequests\)\.toBe\(0\)/);
+  assert.match(scenarios, /automatic keep-alive site rules start, explain, and pause per tab/);
+  assert.match(scenarios, /#keepalive-auto-start/);
+  assert.match(scenarios, /#keepalive-test-result/);
+  assert.match(scenarios, /Paused for this tab/);
   assert.match(scenarios, /quick add deploys a real DNR header/);
   assert.match(scenarios, /rule inspector explains resolved and ambiguous conflicts/);
   assert.match(scenarios, /#rule-inspector-button/);

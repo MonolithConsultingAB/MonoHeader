@@ -27,6 +27,10 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg>
             Profiles
           </button>
+          <button class="nav-item" type="button" data-view="keepalive">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/><path d="M20 7a8 8 0 1 0 0 10"/></svg>
+            Keep-alive
+          </button>
           <button class="nav-item" type="button" data-view="activity">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
             Activity
@@ -43,7 +47,7 @@
             <div><strong>Private by design</strong><span>No telemetry or cloud sync.</span></div>
           </div>
         <span class="creator">Created by Monolith Consulting AB</span>
-        <span class="version">Version 1.9.5</span>
+        <span class="version">Version 1.11.1</span>
         </div>
       </aside>
 
@@ -72,7 +76,7 @@
           <div class="section-heading">
             <div>
               <h2>Rules in <span id="active-profile-heading">Default</span></h2>
-              <p>Only enabled rules in the active profile are deployed to Chrome.</p>
+              <p>Only enabled rules in the active profile are deployed to your browser.</p>
             </div>
             <button id="new-rule-button" class="button button-primary" type="button">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -117,6 +121,124 @@
             </button>
           </div>
           <div id="profiles-grid" class="profile-grid"></div>
+        </section>
+
+        <section id="keepalive-view" class="view" data-view-panel="keepalive" aria-labelledby="view-title" hidden>
+          <div class="metric-grid" id="keepalive-metrics"></div>
+
+          <div class="section-heading">
+            <div>
+              <h2>Automatic keep-alive sites</h2>
+              <p>Start a local activity pulse or same-origin request whenever a matching HTTPS tab is open.</p>
+            </div>
+            <button id="new-keepalive-preset-button" class="button button-primary" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              New site rule
+            </button>
+          </div>
+
+          <div class="keepalive-layout">
+            <article class="panel keepalive-list-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Site rules</h2>
+                  <p>Exact matches override wildcards. The most-specific wildcard wins.</p>
+                </div>
+              </div>
+              <div id="keepalive-preset-list" class="keepalive-preset-list" aria-live="polite"></div>
+            </article>
+
+            <article class="panel keepalive-editor-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2 id="keepalive-editor-title">New site rule</h2>
+                  <p id="keepalive-editor-copy">Choose which HTTPS sites should use keep-alive.</p>
+                </div>
+              </div>
+              <form id="keepalive-preset-form" novalidate>
+                <input id="keepalive-original-key" type="hidden">
+                <div class="form-grid">
+                  <label class="field field-span-2">
+                    <span class="field-label">Rule name</span>
+                    <input id="keepalive-name" maxlength="80" required placeholder="Company portal">
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Site scope <span class="help-tip" tabindex="0" role="note" aria-label="Site scope help: Exact origin matches one scheme, host, and port. Domain includes the base domain and all subdomains. Subdomains only excludes the base domain. All HTTPS sites is global." data-tooltip="Exact origin matches one scheme, host, and port. Domain includes the base domain and all subdomains. Subdomains only excludes the base domain. All HTTPS sites is global.">?</span></span>
+                    <select id="keepalive-scope">
+                      <option value="exact">Exact HTTPS origin</option>
+                      <option value="domain">Domain + subdomains</option>
+                      <option value="subdomains">Subdomains only</option>
+                      <option value="global">All HTTPS sites</option>
+                    </select>
+                  </label>
+                  <label id="keepalive-pattern-field" class="field">
+                    <span class="field-label">Site pattern</span>
+                    <input id="keepalive-pattern" required spellcheck="false" autocomplete="off" placeholder="https://portal.example.com">
+                    <small id="keepalive-pattern-help">Include the complete HTTPS origin.</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Method</span>
+                    <select id="keepalive-mode">
+                      <option value="activity">Activity pulse</option>
+                      <option value="request">Request path</option>
+                      <option value="both">Request + pulse</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Check every</span>
+                    <select id="keepalive-interval">
+                      <option value="5">5 minutes</option>
+                      <option value="10" selected>10 minutes</option>
+                      <option value="15">15 minutes</option>
+                      <option value="30">30 minutes</option>
+                    </select>
+                  </label>
+                  <label id="keepalive-target-path-field" class="field field-span-2" hidden>
+                    <span class="field-label">Request path <span class="help-tip" tabindex="0" role="note" aria-label="Request path help: Enter a relative HTTPS path. MonoHeader sends the request only to the matching tab's own origin." data-tooltip="Enter a relative path such as /api/session/keepalive. MonoHeader sends it only to the matching tab's own HTTPS origin.">?</span></span>
+                    <input id="keepalive-target-path" maxlength="1024" spellcheck="false" autocomplete="off" placeholder="/api/session/keepalive">
+                    <small>Leave blank to request the current page. Cross-origin targets are rejected.</small>
+                  </label>
+                  <label id="keepalive-exclusions-field" class="field field-span-2">
+                    <span class="field-label">Excluded hosts <span class="optional">(optional)</span></span>
+                    <textarea id="keepalive-exclusions" rows="3" spellcheck="false" placeholder="admin.example.com&#10;*.internal.example.com"></textarea>
+                    <small>One exact host or <code>*.subdomain.example.com</code> per line. Exclusions apply only to this rule.</small>
+                  </label>
+                </div>
+                <label class="switch-row keepalive-auto-row">
+                  <span>
+                    <strong>Always active on matching sites</strong>
+                    <small>Starts automatically after a matching tab finishes loading. Turning a tab off in the popup pauses only that tab until it leaves the site.</small>
+                  </span>
+                  <span class="switch">
+                    <input id="keepalive-auto-start" type="checkbox" role="switch">
+                    <span class="switch-track" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <p class="keepalive-local-note">All settings, schedules, and diagnostic timestamps stay in this browser. Activity pulse reads no page content; request mode is restricted to the matched tab’s own HTTPS origin.</p>
+                <div class="keepalive-form-actions">
+                  <button id="cancel-keepalive-preset-button" class="button button-ghost" type="button">Clear</button>
+                  <button id="save-keepalive-preset-button" class="button button-primary" type="submit">Save site rule</button>
+                </div>
+              </form>
+            </article>
+          </div>
+
+          <article class="panel keepalive-tester-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Pattern tester</h2>
+                <p>Preview the effective saved rule and verify the draft above before saving.</p>
+              </div>
+            </div>
+            <form id="keepalive-pattern-test-form" class="keepalive-test-form">
+              <label class="field">
+                <span class="field-label">HTTPS URL to test</span>
+                <input id="keepalive-test-url" type="url" required spellcheck="false" placeholder="https://app.example.com/dashboard">
+              </label>
+              <button id="keepalive-test-button" class="button button-secondary" type="submit">Test match</button>
+            </form>
+            <div id="keepalive-test-result" class="keepalive-test-result" role="status" aria-live="polite">Enter an HTTPS URL to see which rule wins.</div>
+          </article>
         </section>
 
         <section id="activity-view" class="view" data-view-panel="activity" aria-labelledby="view-title" hidden>
@@ -177,15 +299,15 @@
               <div class="panel-heading"><div><h2>Privacy and permissions</h2><p>MonoHeader has no remote service, telemetry, or third-party network client.</p></div><span class="badge badge-success">Local configuration</span></div>
               <ul class="privacy-list">
                 <li><span class="check-icon">✓</span><div><strong>No remote services</strong><p>No analytics, telemetry, accounts, cloud sync, update checks, or external API calls.</p></div></li>
-                <li><span class="check-icon">✓</span><div><strong>Local and session storage</strong><p>Configuration, keep-alive presets, and audit data use <code>chrome.storage.local</code>. Values marked session-only use in-memory <code>chrome.storage.session</code> and are never included in exports or rollback snapshots.</p></div></li>
-                <li><span class="check-icon">✓</span><div><strong>Purpose-limited access</strong><p>Website access is used only for enabled header rules and session keep-alive tabs selected by you.</p></div></li>
+                <li><span class="check-icon">✓</span><div><strong>Local and session storage</strong><p>Configuration, keep-alive presets, and audit data use the browser’s local extension storage. Values marked session-only use in-memory extension session storage and are never included in exports or rollback snapshots.</p></div></li>
+                <li><span class="check-icon">✓</span><div><strong>Purpose-limited access</strong><p>Website access is used only for enabled header rules and session keep-alive tabs or site patterns selected by you.</p></div></li>
                 <li><span class="check-icon">✓</span><div><strong>No page inspection</strong><p>Keep-alive uses a transient packaged function. Optional activity mode dispatches events to the document itself but does not query elements or read page text, form data, passwords, cookies, or response bodies.</p></div></li>
               </ul>
               <p class="network-caveat">Request-header values are sent to matching destinations. Session keep-alive can send a credentialed GET to the current page or your configured same-origin HTTPS path, dispatch a synthetic document-level activity pulse, or do both. Response content is discarded, and nothing is sent to a MonoHeader or third-party service.</p>
             </article>
 
             <article class="panel settings-panel danger-panel">
-              <div class="panel-heading"><div><h2>Reset</h2><p>Remove every profile, rule, session-only value, keep-alive entry and site preset, then clear deployed DNR rules.</p></div></div>
+              <div class="panel-heading"><div><h2>Reset</h2><p>Remove every profile, rule, session-only value, keep-alive entry, site rule, and per-tab pause, then clear deployed DNR rules.</p></div></div>
               <div class="action-row">
                 <div><strong>Restore factory defaults</strong><p>Export a backup first if you may need this configuration again.</p></div>
                 <button id="reset-button" class="button button-danger" type="button">Reset MonoHeader</button>
@@ -209,7 +331,7 @@
           </div>
           <div class="form-grid inspector-context-grid">
             <label class="field field-span-2">
-              <span class="field-label">Request URL <span class="help-tip" tabindex="0" role="note" aria-label="Request URL help: Enter the complete HTTP or HTTPS destination URL that Chrome will request." data-tooltip="Enter the complete HTTP or HTTPS destination URL that Chrome will request.">?</span></span>
+              <span class="field-label">Request URL <span class="help-tip" tabindex="0" role="note" aria-label="Request URL help: Enter the complete HTTP or HTTPS destination URL that the browser will request." data-tooltip="Enter the complete HTTP or HTTPS destination URL that the browser will request.">?</span></span>
               <input id="inspector-url" type="url" required spellcheck="false" placeholder="https://api.example.com/v1">
             </label>
             <label class="field field-span-2">
@@ -226,7 +348,7 @@
               <select id="inspector-resource-type"></select>
             </label>
             <label class="field">
-              <span class="field-label">Domain relationship <span class="help-tip" tabindex="0" role="note" aria-label="Domain relationship help: Choose how Chrome should classify the destination relative to the initiating frame." data-tooltip="Choose how Chrome should classify the destination relative to the initiating frame.">?</span></span>
+              <span class="field-label">Domain relationship <span class="help-tip" tabindex="0" role="note" aria-label="Domain relationship help: Choose how the browser should classify the destination relative to the initiating frame." data-tooltip="Choose how the browser should classify the destination relative to the initiating frame.">?</span></span>
               <select id="inspector-domain-type">
                 <option value="firstParty" selected>First party</option>
                 <option value="thirdParty">Third party</option>
@@ -262,7 +384,7 @@
           <div id="rule-form-errors" class="form-alert" role="alert" hidden></div>
           <div class="rule-application-note" role="note">
             <strong>How application works</strong>
-            <p>Save rule updates the current draft. Nothing is deployed until you choose <strong>Apply changes</strong>; Chrome then applies enabled rules from the active profile using the match conditions below.</p>
+            <p>Save rule updates the current draft. Nothing is deployed until you choose <strong>Apply changes</strong>; the browser then applies enabled rules from the active profile using the match conditions below.</p>
           </div>
           <input id="rule-id" type="hidden">
           <div class="form-grid form-grid-three">
@@ -285,7 +407,7 @@
             <legend>Match requests</legend>
             <div class="form-grid form-grid-three">
               <label class="field">
-                <span class="field-label">Pattern type <span class="help-tip" tabindex="0" role="note" aria-label="Pattern type help: URL pattern uses Chrome's simpler URL-filter syntax. Regular expression uses RE2 and is more precise but easier to misconfigure." data-tooltip="URL pattern uses Chrome’s simpler URL-filter syntax. Regular expression uses RE2 and is more precise but easier to misconfigure.">?</span></span>
+                <span class="field-label">Pattern type <span class="help-tip" tabindex="0" role="note" aria-label="Pattern type help: URL pattern uses the simpler DNR URL-filter syntax. Regular expression is more precise but easier to misconfigure." data-tooltip="URL pattern uses the simpler DNR URL-filter syntax. Regular expression is more precise but easier to misconfigure.">?</span></span>
                 <select id="pattern-type">
                   <option value="urlFilter">URL pattern</option>
                   <option value="regexFilter">Regular expression (RE2)</option>
@@ -294,7 +416,7 @@
               <label class="field field-span-2">
                 <span class="field-label">Pattern <span class="help-tip" tabindex="0" role="note" aria-label="Pattern help: This condition decides which request URLs qualify. Use an asterisk to match every URL." data-tooltip="This condition decides which request URLs qualify. Use * to match every URL.">?</span></span>
                 <input id="url-pattern" required spellcheck="false" placeholder="||api.example.com/" aria-describedby="url-pattern-help">
-                <small id="url-pattern-help">Chrome URL-filter syntax. Use <code>*</code> for every URL or <code>||example.com/</code> for a domain and its subdomains.</small>
+                <small id="url-pattern-help">DNR URL-filter syntax. Use <code>*</code> for every URL or <code>||example.com/</code> for a domain and its subdomains.</small>
               </label>
               <label class="check-field field-span-3"><input id="case-sensitive" type="checkbox"><span>Match URL with case sensitivity</span></label>
               <label class="field">
@@ -346,7 +468,7 @@
 
           <fieldset class="form-section">
             <legend>Header modifications</legend>
-            <p class="section-help"><strong>Target</strong> chooses outgoing request or incoming response headers. <strong>Set</strong> replaces a value, <strong>Append</strong> adds to it where Chrome permits, and <strong>Remove</strong> deletes the header. Choose <strong>This session</strong> for sensitive values that must stay in memory and be re-entered after Chrome restarts, reloads, updates, or disables the extension.</p>
+            <p class="section-help"><strong>Target</strong> chooses outgoing request or incoming response headers. <strong>Set</strong> replaces a value, <strong>Append</strong> adds to it where the browser permits, and <strong>Remove</strong> deletes the header. Choose <strong>This session</strong> for sensitive values that must stay in memory and be re-entered after the browser restarts, reloads, updates, or disables the extension.</p>
             <div id="modification-list" class="modification-list"></div>
             <button id="add-modification-button" class="button button-secondary" type="button">
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -434,7 +556,7 @@
           <input data-mod-field="value" autocomplete="off" spellcheck="false" placeholder="Bearer …">
         </label>
         <label class="field compact lifetime-field">
-          <span class="field-label">Value lifetime <span class="help-tip" tabindex="0" role="note" aria-label="Value lifetime help: Persistent values remain in local configuration. This session keeps the value only in memory and deploys it through a Chrome session rule. It must be re-entered after Chrome restarts or after the extension reloads, updates, or is disabled." data-tooltip="Persistent values remain in local configuration. This session keeps the value only in memory and must be re-entered after Chrome restarts or after the extension reloads, updates, or is disabled.">?</span></span>
+          <span class="field-label">Value lifetime <span class="help-tip" tabindex="0" role="note" aria-label="Value lifetime help: Persistent values remain in local configuration. This session keeps the value only in memory and deploys it through a browser session rule. It must be re-entered after the browser restarts or after the extension reloads, updates, or is disabled." data-tooltip="Persistent values remain in local configuration. This session keeps the value only in memory and must be re-entered after the browser restarts or after the extension reloads, updates, or is disabled.">?</span></span>
           <select data-mod-field="lifetime">
             <option value="persistent">Persistent</option>
             <option value="session">This session</option>
@@ -446,6 +568,7 @@
     </template>
 
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="platform.js"></script>
     <script src="core.js"></script>
     <script src="app.js"></script>
   </body>

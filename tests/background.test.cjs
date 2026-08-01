@@ -222,7 +222,7 @@ function createHarness(seedState, initialRules, options) {
         return Core.clone(tabMap.get(tabId));
       },
       async query() {
-        return tabMap.size ? [Core.clone(tabMap.values().next().value)] : [];
+        return [...tabMap.values()].map((tab) => Core.clone(tab));
       }
     },
     scripting: {
@@ -246,8 +246,14 @@ function createHarness(seedState, initialRules, options) {
       }
     }
   };
+  const apiGlobals = options && options.firefox
+    ? {
+        browser: chrome,
+        MonoHeaderPlatform: Object.freeze({ browserName: "Firefox", isFirefox: true, isChrome: false })
+      }
+    : { chrome };
   const context = vm.createContext({
-    chrome,
+    ...apiGlobals,
     MonoHeaderCore: Core,
     importScripts() {},
     console,
@@ -287,6 +293,15 @@ function createHarness(seedState, initialRules, options) {
     }
   };
 }
+
+test("background runtime operates through Firefox's browser namespace", async () => {
+  const harness = createHarness(makeState([]), [], { firefox: true });
+  const response = await harness.sendRuntimeMessage({ action: "GET_STATE" });
+  assert.equal(response.ok, true);
+  assert.equal(response.runtime.deployedRuleCount, 0);
+  assert.equal(harness.context.chrome, undefined);
+  assert.ok(harness.context.browser);
+});
 
 test("background reports saved state and actual DNR runtime", async () => {
   const state = makeState([makeRule(1)]);
@@ -746,13 +761,15 @@ test("a per-site preset stores settings without starting keep-alive", async () =
   assert.equal(saved.sessionKeepAlive.preset.targetPath, "/api/session/keepalive");
   assert.equal(saved.sessionKeepAlive.preset.mode, "request");
   assert.ok(saved.sessionKeepAlive.preset.updatedAt);
-  assert.equal(harness.storage.monoHeaderSessionKeepAlive.version, 5);
+  assert.equal(harness.storage.monoHeaderSessionKeepAlive.version, 6);
   assert.equal(harness.storage.monoHeaderSessionKeepAlive.entries.length, 0);
   assert.equal(harness.storage.monoHeaderSessionKeepAlive.presets.length, 1);
   assert.equal(
-    harness.storage.monoHeaderSessionKeepAlive.presets[0].origin,
+    harness.storage.monoHeaderSessionKeepAlive.presets[0].pattern,
     "https://app.example.com"
   );
+  assert.equal(harness.storage.monoHeaderSessionKeepAlive.presets[0].scope, "exact");
+  assert.equal(harness.storage.monoHeaderSessionKeepAlive.presets[0].autoStart, false);
   assert.equal(harness.getScriptingCalls().length, 0);
   assert.equal(harness.getAlarms().size, 0);
 
@@ -888,14 +905,231 @@ test("legacy keep-alive stores migrate with entries intact and no invented prese
     }]
   });
 
-  assert.equal(normalized.version, 5);
+  assert.equal(normalized.version, 6);
   assert.equal(normalized.entries.length, 1);
   assert.equal(normalized.presets.length, 0);
+  assert.deepEqual(Array.from(normalized.pauses), []);
 
   function harnessNormalizeSessionStore(store) {
     const state = makeState([]);
     return createHarness(state, []).context.normalizeSessionStore(store);
   }
+});
+
+test("legacy exact-origin presets migrate with automatic start disabled", () => {
+  const state = makeState([]);
+  const harness = createHarness(state, []);
+  const normalized = harness.context.normalizeSessionStore({
+    version: 5,
+    entries: [],
+    presets: [{
+      origin: "https://portal.example.com",
+      intervalMinutes: 15,
+      targetPath: "",
+      mode: "activity"
+    }]
+  });
+
+  assert.equal(normalized.version, 6);
+  assert.equal(normalized.presets.length, 1);
+  assert.equal(normalized.presets[0].scope, "exact");
+  assert.equal(normalized.presets[0].pattern, "https://portal.example.com");
+  assert.equal(normalized.presets[0].autoStart, false);
+  assert.deepEqual(Array.from(normalized.presets[0].excludedHosts), []);
+});
+
+test("automatic domain rules start matching tabs while exclusions stay inactive", async () => {
+  const state = makeState([]);
+  const harness = createHarness(state, [], {
+    tabs: [
+      { id: 7, url: "https://app.example.com/dashboard", status: "complete" },
+      { id: 8, url: "https://api.example.com/account", status: "complete" },
+      { id: 9, url: "https://admin.example.com/", status: "complete" },
+      { id: 10, url: "https://other.example.net/", status: "complete" }
+    ]
+  });
+
+  const response = await harness.context.handleMessage({
+    action: "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+    preset: {
+      name: "Example services",
+      scope: "domain",
+      pattern: "example.com",
+      autoStart: true,
+      excludedHosts: ["admin.example.com"],
+      intervalMinutes: 10,
+      targetPath: "",
+      mode: "activity"
+    }
+  });
+
+  assert.equal(response.sessionKeepAliveConfig.presets.length, 1);
+  assert.equal(response.sessionKeepAliveConfig.presets[0].matchingTabCount, 2);
+  assert.equal(response.sessionKeepAliveConfig.presets[0].activeTabCount, 2);
+  assert.deepEqual(
+    harness.storage.monoHeaderSessionKeepAlive.entries.map((entry) => entry.tabId).sort(),
+    [7, 8]
+  );
+  assert.ok(harness.storage.monoHeaderSessionKeepAlive.entries.every((entry) => entry.automatic));
+  assert.equal(harness.getAlarms().size, 2);
+  assert.equal(harness.getScriptingCalls().length, 2);
+});
+
+test("exact rules and more-specific wildcards deterministically override broader automatic rules", async () => {
+  const state = makeState([]);
+  const harness = createHarness(state, [], {
+    tabs: [
+      { id: 7, url: "https://app.eu.example.com/dashboard", status: "complete" },
+      { id: 8, url: "https://api.example.com/account", status: "complete" }
+    ]
+  });
+  const save = (preset) => harness.context.handleMessage({
+    action: "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+    preset
+  });
+
+  await save({
+    name: "All Example",
+    scope: "domain",
+    pattern: "example.com",
+    autoStart: true,
+    excludedHosts: [],
+    intervalMinutes: 30,
+    mode: "activity"
+  });
+  await save({
+    name: "Europe subdomains",
+    scope: "subdomains",
+    pattern: "eu.example.com",
+    autoStart: true,
+    excludedHosts: [],
+    intervalMinutes: 15,
+    mode: "activity"
+  });
+  await save({
+    name: "App opt-out",
+    scope: "exact",
+    pattern: "https://app.eu.example.com",
+    autoStart: false,
+    excludedHosts: [],
+    intervalMinutes: 5,
+    mode: "activity"
+  });
+
+  const appStatus = await harness.context.handleMessage({
+    action: "GET_SESSION_KEEP_ALIVE",
+    tabId: 7
+  });
+  const apiStatus = await harness.context.handleMessage({
+    action: "GET_SESSION_KEEP_ALIVE",
+    tabId: 8
+  });
+  assert.equal(appStatus.sessionKeepAlive.enabled, false);
+  assert.equal(appStatus.sessionKeepAlive.matchedPreset.name, "App opt-out");
+  assert.equal(appStatus.sessionKeepAlive.matchedPreset.autoStart, false);
+  assert.equal(apiStatus.sessionKeepAlive.enabled, true);
+  assert.equal(apiStatus.sessionKeepAlive.matchedPreset.name, "All Example");
+  assert.equal(apiStatus.sessionKeepAlive.intervalMinutes, 30);
+
+  const patternTest = await harness.context.handleMessage({
+    action: "TEST_SESSION_KEEP_ALIVE_PATTERN",
+    url: "https://deep.eu.example.com/page"
+  });
+  assert.equal(patternTest.sessionPatternTest.effectivePreset.name, "Europe subdomains");
+  assert.match(patternTest.sessionPatternTest.explanation, /most specific/i);
+});
+
+test("turning off an automatically managed tab pauses only that tab until it leaves the site", async () => {
+  const state = makeState([]);
+  const harness = createHarness(state, [], {
+    tabs: [
+      { id: 7, url: "https://app.example.com/dashboard", status: "complete" },
+      { id: 8, url: "https://api.example.com/account", status: "complete" }
+    ]
+  });
+  await harness.context.handleMessage({
+    action: "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+    preset: {
+      name: "Example services",
+      scope: "domain",
+      pattern: "example.com",
+      autoStart: true,
+      excludedHosts: [],
+      intervalMinutes: 10,
+      mode: "activity"
+    }
+  });
+
+  const paused = await harness.context.handleMessage({
+    action: "SET_SESSION_KEEP_ALIVE",
+    tabId: 7,
+    enabled: false
+  });
+  assert.equal(paused.sessionKeepAlive.enabled, false);
+  assert.equal(paused.sessionKeepAlive.autoPaused, true);
+  assert.equal(harness.storage.monoHeaderSessionKeepAlive.entries.length, 1);
+  assert.equal(harness.storage.monoHeaderSessionKeepAlive.entries[0].tabId, 8);
+
+  harness.setTab({ id: 7, url: "https://app.example.com/another", status: "complete" });
+  harness.listeners.tabUpdated(7, { url: "https://app.example.com/another", status: "complete" }, {
+    id: 7,
+    url: "https://app.example.com/another",
+    status: "complete"
+  });
+  const sameOrigin = await harness.sendRuntimeMessage({
+    action: "GET_SESSION_KEEP_ALIVE",
+    tabId: 7
+  });
+  assert.equal(sameOrigin.sessionKeepAlive.enabled, false);
+  assert.equal(sameOrigin.sessionKeepAlive.autoPaused, true);
+
+  harness.setTab({ id: 7, url: "https://outside.example.net/", status: "complete" });
+  harness.listeners.tabUpdated(7, { url: "https://outside.example.net/", status: "complete" }, {
+    id: 7,
+    url: "https://outside.example.net/",
+    status: "complete"
+  });
+  await harness.sendRuntimeMessage({ action: "GET_SESSION_KEEP_ALIVE", tabId: 7 });
+  harness.setTab({ id: 7, url: "https://app.example.com/return", status: "complete" });
+  harness.listeners.tabUpdated(7, { url: "https://app.example.com/return", status: "complete" }, {
+    id: 7,
+    url: "https://app.example.com/return",
+    status: "complete"
+  });
+  const returned = await harness.sendRuntimeMessage({
+    action: "GET_SESSION_KEEP_ALIVE",
+    tabId: 7
+  });
+  assert.equal(returned.sessionKeepAlive.enabled, true);
+  assert.equal(returned.sessionKeepAlive.automatic, true);
+  assert.equal(returned.sessionKeepAlive.autoPaused, false);
+});
+
+test("global automatic keep-alive requires explicit confirmation", async () => {
+  const state = makeState([]);
+  const harness = createHarness(state, []);
+  const preset = {
+    name: "All sites",
+    scope: "global",
+    pattern: "*",
+    autoStart: true,
+    excludedHosts: [],
+    intervalMinutes: 10,
+    mode: "activity"
+  };
+  await assert.rejects(
+    harness.context.handleMessage({
+      action: "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+      preset
+    }),
+    /Confirm that keep-alive should start automatically on every HTTPS site/i
+  );
+  const saved = await harness.context.handleMessage({
+    action: "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+    preset,
+    confirmGlobal: true
+  });
+  assert.equal(saved.sessionKeepAliveConfig.presets[0].autoStart, true);
 });
 
 test("manual keep-alive test runs once without enabling or scheduling the tab", async () => {

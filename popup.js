@@ -1,5 +1,8 @@
 "use strict";
 
+const ExtensionAPI = globalThis.MonoHeaderAPI || globalThis.browser || globalThis.chrome;
+const BrowserName = globalThis.MonoHeaderPlatform && globalThis.MonoHeaderPlatform.browserName || "Browser";
+
 const PopupCore = globalThis.MonoHeaderCore;
 const SESSION_STORAGE_KEY = "monoHeaderSessionKeepAlive";
 const POPUP_MESSAGE_TIMEOUT_MS = 6000;
@@ -38,12 +41,14 @@ async function initializePopup() {
   document.getElementById("session-target-path").addEventListener("change", changeSessionTargetPath);
   document.getElementById("session-preset-save").addEventListener("click", saveSessionPreset);
   document.getElementById("session-preset-delete").addEventListener("click", deleteSessionPreset);
+  document.getElementById("session-auto-rule-disable").addEventListener("click", disableSessionAutoRule);
+  document.getElementById("session-auto-rule-manage").addEventListener("click", openKeepAliveWorkspace);
   document.getElementById("session-test-button").addEventListener("click", testSessionKeepAlive);
   document.getElementById("session-reset-button").addEventListener("click", resetSessionKeepAlive);
   document.getElementById("session-diagnostics-button").addEventListener("click", toggleSessionDiagnostics);
   document.getElementById("session-copy-diagnostics").addEventListener("click", copySessionDiagnostics);
-  document.getElementById("open-dashboard").addEventListener("click", () => chrome.runtime.openOptionsPage());
-  chrome.storage.onChanged.addListener(handleSessionStorageChange);
+  document.getElementById("open-dashboard").addEventListener("click", () => ExtensionAPI.runtime.openOptionsPage());
+  ExtensionAPI.storage.onChanged.addListener(handleSessionStorageChange);
   window.addEventListener("pagehide", stopSessionCountdown);
   try {
     const response = await popupMessage("GET_STATE");
@@ -70,7 +75,7 @@ function renderPopup() {
   document.getElementById("power-toggle").disabled = popupState.busy;
   document.getElementById("power-title").textContent = state.extensionEnabled ? "MonoHeader enabled" : "MonoHeader paused";
   document.getElementById("power-description").textContent = state.extensionEnabled
-    ? `${popupState.runtime.deployedRuleCount} rule${popupState.runtime.deployedRuleCount === 1 ? "" : "s"} active in Chrome.`
+    ? `${popupState.runtime.deployedRuleCount} rule${popupState.runtime.deployedRuleCount === 1 ? "" : "s"} active in ${BrowserName}.`
     : "No header rules are currently applied.";
   document.getElementById("active-rule-count").textContent = state.extensionEnabled ? enabledRules.length : 0;
   document.getElementById("header-change-count").textContent = state.extensionEnabled ? modifications : 0;
@@ -101,7 +106,7 @@ function renderPopup() {
 
 async function loadSessionContext() {
   try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await ExtensionAPI.tabs.query({ active: true, currentWindow: true });
     const tab = tabs && tabs[0];
     popupState.currentTab = tab && Number.isInteger(tab.id)
       ? { id: tab.id, url: String(tab.url || "") }
@@ -142,6 +147,10 @@ function renderSessionKeepAlive() {
   const presetStatus = document.getElementById("session-preset-status");
   const presetSave = document.getElementById("session-preset-save");
   const presetDelete = document.getElementById("session-preset-delete");
+  const autoRule = document.getElementById("session-auto-rule");
+  const autoRuleStatus = document.getElementById("session-auto-rule-status");
+  const autoRuleDisable = document.getElementById("session-auto-rule-disable");
+  const autoRuleManage = document.getElementById("session-auto-rule-manage");
   const presetMatches = sessionPresetMatchesControls(session.preset);
 
   toggle.checked = displayedEnabled;
@@ -164,6 +173,16 @@ function renderSessionKeepAlive() {
   presetSave.disabled = popupState.sessionBusy || !session.supported || presetMatches;
   presetDelete.disabled = popupState.sessionBusy || !session.supported || !session.preset;
   presetSave.textContent = session.preset ? "Update preset" : "Save preset";
+  const showAutoRule = Boolean(session.matchedPreset && session.automaticManaged);
+  autoRule.hidden = !showAutoRule;
+  autoRuleDisable.disabled = popupState.sessionBusy || !showAutoRule;
+  autoRuleManage.disabled = popupState.sessionBusy;
+  if (showAutoRule) {
+    const matched = session.matchedPreset;
+    autoRuleStatus.textContent = session.autoPaused
+      ? `Paused for this tab · ${matched.name} · ${matched.displayPattern}`
+      : `${matched.name} · ${matched.displayPattern}`;
+  }
   presetStatus.className = "";
   if (popupState.sessionAction === "saving-preset") {
     presetStatus.textContent = "Saving this site preset…";
@@ -233,7 +252,9 @@ function renderSessionKeepAlive() {
     );
     status.classList.add(sessionResultClass(popupState.sessionDiagnostic.status));
   } else if (!session.enabled) {
-    status.textContent = "Off. No keep-alive checks are running.";
+    status.textContent = session.autoPaused
+      ? "Paused for this tab. Automatic keep-alive can resume after the tab leaves this site."
+      : "Off. No keep-alive checks are running.";
   } else if (session.lastStatus === "success") {
     const http = session.lastHttpStatus ? ` · HTTP ${session.lastHttpStatus}` : "";
     if (session.mode === "activity") {
@@ -308,7 +329,8 @@ function formatSessionTrigger(value) {
     enabled: "Enabled",
     settings: "Settings changed",
     scheduled: "Scheduled alarm",
-    manual: "Manual test"
+    manual: "Manual test",
+    automatic: "Automatic site rule"
   }[value] || "None";
 }
 
@@ -545,6 +567,39 @@ async function deleteSessionPreset() {
   }
 }
 
+async function disableSessionAutoRule() {
+  const session = popupState.sessionKeepAlive;
+  if (
+    popupState.sessionBusy ||
+    !popupState.currentTab ||
+    !session ||
+    !session.matchedPreset
+  ) return;
+  popupState.sessionBusy = true;
+  popupState.sessionAction = "disabling";
+  clearPopupError();
+  renderPopup();
+  try {
+    const response = await popupMessage("SET_SESSION_KEEP_ALIVE_PRESET_AUTO_START", {
+      presetKey: session.matchedPreset.key,
+      enabled: false,
+      tabId: popupState.currentTab.id
+    });
+    popupState.sessionKeepAlive = response.sessionKeepAlive;
+    popupState.sessionPresetNotice = "Automatic start disabled. The site rule remains saved.";
+  } catch (error) {
+    showPopupError(error.message);
+  } finally {
+    popupState.sessionBusy = false;
+    popupState.sessionAction = "";
+    renderPopup();
+  }
+}
+
+function openKeepAliveWorkspace() {
+  ExtensionAPI.tabs.create({ url: ExtensionAPI.runtime.getURL("app.html#keepalive") });
+}
+
 async function updateSessionKeepAlive(enabled) {
   if (popupState.sessionBusy || !popupState.currentTab) return;
   popupState.sessionBusy = true;
@@ -690,6 +745,10 @@ function unsupportedSessionState(message) {
     targetPath: "",
     mode: "activity",
     preset: null,
+    matchedPreset: null,
+    automatic: false,
+    automaticManaged: false,
+    autoPaused: false,
     lastAttemptAt: null,
     lastCompletedAt: null,
     lastSuccessAt: null,
@@ -953,11 +1012,11 @@ async function switchProfile(event) {
 
 async function popupMessage(action, payload) {
   const response = await withPopupTimeout(
-    chrome.runtime.sendMessage({ action, ...(payload || {}) }),
+    ExtensionAPI.runtime.sendMessage({ action, ...(payload || {}) }),
     POPUP_MESSAGE_TIMEOUT_MS
   );
   if (!response || !response.ok) {
-    throw new Error(response && response.error && response.error.message || "The MonoHeader service worker did not respond.");
+    throw new Error(response && response.error && response.error.message || "The MonoHeader background runtime did not respond.");
   }
   return response;
 }

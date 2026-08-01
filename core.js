@@ -8,7 +8,7 @@
   "use strict";
 
   const APP_NAME = "MonoHeader";
-  const APP_VERSION = "1.9.5";
+  const APP_VERSION = "1.11.1";
   const SCHEMA_VERSION = 2;
   const EXPORT_FORMAT = "monoheader";
   const MAX_DYNAMIC_HEADER_RULES = 5000;
@@ -497,7 +497,7 @@
     }
     if (modification.target === "request" && modification.operation === "append") {
       if (!REQUEST_APPEND_ALLOWLIST.has(String(modification.header).toLowerCase())) {
-        errors.push(`${label} cannot append to this request header in Chrome. Use Set, or choose a supported append header.`);
+        errors.push(`${label} cannot append to this request header in MonoHeader's portable browser rules. Use Set, or choose a supported append header.`);
       }
     }
     return errors;
@@ -520,7 +520,7 @@
     } else {
       const pattern = String(rule.match.pattern || "");
       if (!pattern) errors.push("A URL pattern is required.");
-      if (!isAscii(pattern)) errors.push("Chrome DNR URL patterns must contain ASCII characters only.");
+      if (!isAscii(pattern)) errors.push("DNR URL patterns must contain ASCII characters only.");
       if (rule.match.patternType === "urlFilter" && pattern.startsWith("||*")) {
         errors.push('A URL filter cannot begin with "||*". Use "*" to match all URLs.');
       }
@@ -567,7 +567,7 @@
           previousModification.sessionOnly !== modification.sessionOnly
         ) {
           errors.push(
-            `The header "${modification.header}" cannot mix Persistent and This session values in one rule because Chrome does not guarantee equal-priority ordering across rulesets. Use one lifetime or separate rules with different priorities.`
+            `The header "${modification.header}" cannot mix Persistent and This session values in one rule because browsers do not guarantee portable equal-priority ordering across rulesets. Use one lifetime or separate rules with different priorities.`
           );
         }
       }
@@ -589,11 +589,11 @@
       ? activeProfile.rules.filter((rule) => rule.enabled)
       : [];
     if (enabledRules.length > MAX_DYNAMIC_HEADER_RULES) {
-      errors.push(`The active profile has ${enabledRules.length} enabled header rules; Chrome supports at most ${MAX_DYNAMIC_HEADER_RULES}.`);
+      errors.push(`The active profile has ${enabledRules.length} enabled header rules; MonoHeader's portable limit is ${MAX_DYNAMIC_HEADER_RULES}.`);
     }
     const regexCount = enabledRules.filter((rule) => rule.match.patternType === "regexFilter").length;
     if (regexCount > MAX_REGEX_RULES) {
-      errors.push(`The active profile has ${regexCount} regular-expression rules; Chrome supports at most ${MAX_REGEX_RULES}.`);
+      errors.push(`The active profile has ${regexCount} regular-expression rules; MonoHeader's portable limit is ${MAX_REGEX_RULES}.`);
     }
     const ids = new Set();
     normalized.profiles.forEach((profile) => {
@@ -1139,7 +1139,7 @@
       if (incompatible) {
         group.operations.forEach((operation) => {
           operation.status = "ambiguous";
-          operation.reason = "Equal-priority operations have no guaranteed evaluation order in Chrome.";
+          operation.reason = "Equal-priority operations have no guaranteed portable evaluation order across browsers.";
         });
         policy = "uncertain";
         return;

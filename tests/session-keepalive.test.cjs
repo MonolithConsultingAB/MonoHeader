@@ -14,6 +14,8 @@ const injectedCheck = background.slice(injectedStart, injectedEnd);
 const backgroundRuntime = `${background.slice(0, injectedStart)}${background.slice(injectedEnd)}`;
 const popupHtml = readFileSync(join(projectRoot, "popup.html"), "utf8");
 const popupJs = readFileSync(join(projectRoot, "popup.js"), "utf8");
+const appHtml = readFileSync(join(projectRoot, "app.html"), "utf8");
+const appJs = readFileSync(join(projectRoot, "app.js"), "utf8");
 const reportStart = popupJs.indexOf("function createSessionDiagnosticReport(session) {");
 const reportEnd = popupJs.indexOf("\nfunction formatSessionMode", reportStart);
 const diagnosticReportSource = popupJs.slice(reportStart, reportEnd);
@@ -23,6 +25,7 @@ test("keep-alive uses transient scripting and alarms without persistent content 
   assert.ok(manifest.permissions.includes("alarms"));
   assert.ok(manifest.permissions.includes("scripting"));
   assert.equal(manifest.content_scripts, undefined);
+  assert.match(background, /importScripts\("platform\.js"\)/);
   assert.match(background, /importScripts\("core\.js"\)/);
   assert.match(background, /func:\s*runMonoHeaderSessionCheck/);
   assert.match(background, /store\.entries\[entryIndex\]\.mode/);
@@ -30,14 +33,14 @@ test("keep-alive uses transient scripting and alarms without persistent content 
   assert.doesNotMatch(backgroundRuntime, /\bfetch\s*\(/);
   assert.match(background, /function queueSessionOperation\(operation\)/);
   assert.match(background, /SESSION_SERIAL_ACTIONS\.has\(action\)/);
-  assert.match(background, /"GET_SESSION_KEEP_ALIVE",\s*\.\.\.SESSION_WRITE_ACTIONS/s);
+  assert.match(background, /"GET_SESSION_KEEP_ALIVE",[\s\S]*\.\.\.SESSION_WRITE_ACTIONS/);
   assert.match(
     background,
     /action === "RESET"\s*\?\s*queueOperation\(\(\) => queueSessionOperation\(\(\) => handleMessage\(message\)\)\)/
   );
   assert.match(background, /function isReadOnlyAction\(action\)/);
   assert.match(background, /SESSION_EXECUTION_TIMEOUT_MS = 5000/);
-  assert.match(background, /withTimeout\(\s*chrome\.scripting\.executeScript\(/s);
+  assert.match(background, /withTimeout\(\s*ExtensionAPI\.scripting\.executeScript\(/s);
 });
 
 test("keep-alive ping is HTTPS, credentialed, same-origin, and metadata-only", () => {
@@ -110,7 +113,7 @@ test("popup shows completion-based success and a live next-check countdown", () 
   assert.match(background, /const completedAt = new Date\(\)\.toISOString\(\)/);
   assert.match(background, /updated\.lastSuccessAt = check\.completedAt/);
   assert.match(background, /nextCheckAt: entry \? normalizeAlarmTimestamp\(alarm && alarm\.scheduledTime\) : null/);
-  assert.match(popupJs, /chrome\.storage\.onChanged\.addListener\(handleSessionStorageChange\)/);
+  assert.match(popupJs, /ExtensionAPI\.storage\.onChanged\.addListener\(handleSessionStorageChange\)/);
   assert.match(popupJs, /window\.setInterval\(updateSessionCountdown, 1000\)/);
   assert.match(popupJs, /String\(minutes\)\.padStart\(2, "0"\)/);
   assert.match(popupJs, /Latest request succeeded/);
@@ -132,29 +135,50 @@ test("session request paths are normalized and constrained to the tab origin", (
   assert.match(background, /targetPath: selectedSettings \? selectedSettings\.targetPath : ""/);
 });
 
-test("per-site presets remember exact-origin settings without auto-starting", () => {
+test("exact-origin popup presets remain manual while workspace rules can start automatically", () => {
   assert.match(popupHtml, /id="session-preset-save"[^>]*>Save preset</);
   assert.match(popupHtml, /id="session-preset-delete"/);
-  assert.match(popupHtml, /Stores these settings for this exact HTTPS site/);
-  assert.match(popupHtml, /Presets never start keep-alive automatically/);
-  assert.match(popupHtml, /Reset affects only this tab and keeps its site preset/);
+  assert.match(popupHtml, /Stores these settings for this exact HTTPS origin/);
+  assert.match(popupHtml, /id="session-auto-rule"/);
+  assert.match(popupHtml, /id="session-auto-rule-disable"/);
+  assert.match(popupHtml, /id="session-auto-rule-manage"/);
   assert.match(popupJs, /SAVE_SESSION_KEEP_ALIVE_PRESET/);
   assert.match(popupJs, /DELETE_SESSION_KEEP_ALIVE_PRESET/);
+  assert.match(popupJs, /SET_SESSION_KEEP_ALIVE_PRESET_AUTO_START/);
+  assert.match(popupJs, /app\.html#keepalive/);
   assert.match(popupJs, /sessionPresetMatchesControls/);
-  assert.match(background, /const SESSION_STORE_VERSION = 5/);
+  assert.match(background, /const SESSION_STORE_VERSION = 6/);
   assert.match(background, /const MAX_SESSION_PRESETS = 100/);
   assert.match(background, /async function saveSessionPresetForTab/);
   assert.match(background, /async function deleteSessionPresetForTab/);
-  assert.match(background, /preset\.origin === tabInfo\.origin/);
-  assert.match(background, /return \{ version: SESSION_STORE_VERSION, entries, presets \}/);
+  assert.match(background, /scope:\s*"exact"/);
+  assert.match(background, /return \{ version: SESSION_STORE_VERSION, entries, presets, pauses \}/);
   const saveStart = background.indexOf("async function saveSessionPresetForTab");
   const saveEnd = background.indexOf("\nasync function deleteSessionPresetForTab", saveStart);
   const savePresetSource = background.slice(saveStart, saveEnd);
-  assert.doesNotMatch(savePresetSource, /ensureSessionAlarm|executeSessionKeepAliveCheck|chrome\.scripting/);
+  assert.doesNotMatch(savePresetSource, /ensureSessionAlarm|executeSessionKeepAliveCheck|ExtensionAPI\.scripting/);
+});
+
+test("workspace exposes wildcard rules, exclusions, precedence, and a local pattern tester", () => {
+  assert.match(appHtml, /data-view="keepalive"/);
+  assert.match(appHtml, /data-view-panel="keepalive"/);
+  assert.match(appHtml, /value="exact">Exact HTTPS origin/);
+  assert.match(appHtml, /value="domain">Domain \+ subdomains/);
+  assert.match(appHtml, /value="subdomains">Subdomains only/);
+  assert.match(appHtml, /value="global">All HTTPS sites/);
+  assert.match(appHtml, /id="keepalive-exclusions"/);
+  assert.match(appHtml, /id="keepalive-auto-start"/);
+  assert.match(appHtml, /id="keepalive-pattern-test-form"/);
+  assert.match(appJs, /SAVE_SESSION_KEEP_ALIVE_CONFIG/);
+  assert.match(appJs, /TEST_SESSION_KEEP_ALIVE_PATTERN/);
+  assert.match(background, /function compareSessionPresetSpecificity/);
+  assert.match(background, /function sessionPresetMatchesTab/);
+  assert.match(background, /findEffectiveSessionPreset/);
+  assert.match(background, /Exact origin, then the most-specific domain or wildcard/);
 });
 
 test("status reads ensure a missing alarm without replacing a matching one", () => {
-  assert.match(background, /const existing = await chrome\.alarms\.get\(name\)/);
+  assert.match(background, /const existing = await ExtensionAPI\.alarms\.get\(name\)/);
   assert.match(background, /if \(replace \|\| intervalChanged\)/);
   assert.doesNotMatch(background, /if \(entry\) await scheduleSessionAlarm\(entry\)/);
 });

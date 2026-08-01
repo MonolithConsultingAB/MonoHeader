@@ -1,25 +1,39 @@
 "use strict";
 
-importScripts("core.js");
+if (typeof globalThis.MonoHeaderAPI === "undefined" && typeof importScripts === "function") {
+  importScripts("platform.js");
+}
+if (typeof globalThis.MonoHeaderCore === "undefined" && typeof importScripts === "function") {
+  importScripts("core.js");
+}
 
+const ExtensionAPI = globalThis.MonoHeaderAPI || globalThis.browser || globalThis.chrome;
+const BrowserName = globalThis.MonoHeaderPlatform && globalThis.MonoHeaderPlatform.browserName ||
+  (typeof globalThis.browser !== "undefined" ? "Firefox" : "Chrome");
 const Core = globalThis.MonoHeaderCore;
 const STORAGE_KEY = "monoHeaderState";
 const SESSION_STORAGE_KEY = "monoHeaderSessionKeepAlive";
 const SESSION_HEADER_VALUES_KEY = "monoHeaderSessionHeaderValues";
 const SESSION_HEADER_VALUES_VERSION = 1;
-const SESSION_STORE_VERSION = 5;
+const SESSION_STORE_VERSION = 6;
 const SESSION_ALARM_PREFIX = "monoheader-session-";
 const SESSION_INTERVALS = new Set([5, 10, 15, 30]);
 const SESSION_MODES = new Set(["request", "activity", "both"]);
+const SESSION_PRESET_SCOPES = new Set(["exact", "domain", "subdomains", "global"]);
 const SESSION_WRITE_ACTIONS = new Set([
   "SET_SESSION_KEEP_ALIVE",
   "TEST_SESSION_KEEP_ALIVE",
   "RESET_SESSION_KEEP_ALIVE",
   "SAVE_SESSION_KEEP_ALIVE_PRESET",
-  "DELETE_SESSION_KEEP_ALIVE_PRESET"
+  "DELETE_SESSION_KEEP_ALIVE_PRESET",
+  "SAVE_SESSION_KEEP_ALIVE_CONFIG",
+  "DELETE_SESSION_KEEP_ALIVE_CONFIG",
+  "SET_SESSION_KEEP_ALIVE_PRESET_AUTO_START"
 ]);
 const SESSION_SERIAL_ACTIONS = new Set([
   "GET_SESSION_KEEP_ALIVE",
+  "GET_SESSION_KEEP_ALIVE_CONFIG",
+  "TEST_SESSION_KEEP_ALIVE_PATTERN",
   ...SESSION_WRITE_ACTIONS
 ]);
 const SESSION_EXECUTION_TIMEOUT_MS = 5000;
@@ -29,40 +43,40 @@ let operationQueue = Promise.resolve();
 let sessionOperationQueue = Promise.resolve();
 let initializationPromise = Promise.resolve();
 
-chrome.runtime.onInstalled.addListener(() => {
+ExtensionAPI.runtime.onInstalled.addListener(() => {
   queueOperation(() => initializeAndReconcile("Extension installed"));
 });
 
-chrome.runtime.onStartup.addListener(() => {
+ExtensionAPI.runtime.onStartup.addListener(() => {
   queueOperation(() => initializeAndReconcile("Browser startup"));
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+ExtensionAPI.alarms.onAlarm.addListener((alarm) => {
   if (!alarm || !String(alarm.name).startsWith(SESSION_ALARM_PREFIX)) return;
   queueSessionOperation(() => handleSessionAlarm(alarm)).catch((error) => {
     console.warn("MonoHeader session keep-alive alarm failed.", error);
   });
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  queueSessionOperation(() => stopSessionKeepAliveForTab(tabId)).catch((error) => {
+ExtensionAPI.tabs.onRemoved.addListener((tabId) => {
+  queueSessionOperation(() => stopSessionKeepAliveForTab(tabId, { clearPause: true })).catch((error) => {
     console.warn("MonoHeader could not stop keep-alive for a closed tab.", error);
   });
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!changeInfo || !changeInfo.url) return;
-  queueSessionOperation(() => handleSessionTabUpdated(tabId, tab)).catch((error) => {
+ExtensionAPI.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo || (!changeInfo.url && changeInfo.status !== "complete")) return;
+  queueSessionOperation(() => handleSessionTabUpdated(tabId, changeInfo, tab)).catch((error) => {
     console.warn("MonoHeader could not reconcile keep-alive after navigation.", error);
   });
 });
 
-initializationPromise = initializeAndReconcile("Service worker started").catch((error) => {
-  console.error("MonoHeader could not reconcile runtime state during service worker startup.", error);
+initializationPromise = initializeAndReconcile("Background runtime started").catch((error) => {
+  console.error("MonoHeader could not reconcile runtime state during background startup.", error);
 });
 operationQueue = initializationPromise;
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+ExtensionAPI.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const action = message && message.action;
   const operation = action === "RESET"
     ? queueOperation(() => queueSessionOperation(() => handleMessage(message)))
@@ -141,6 +155,8 @@ async function handleMessage(message) {
       );
     case "GET_SESSION_KEEP_ALIVE":
       return { sessionKeepAlive: await getSessionKeepAliveForTab(message.tabId) };
+    case "GET_SESSION_KEEP_ALIVE_CONFIG":
+      return { sessionKeepAliveConfig: await getSessionKeepAliveConfig() };
     case "SET_SESSION_KEEP_ALIVE":
       return {
         sessionKeepAlive: await setSessionKeepAliveForTab(
@@ -158,7 +174,7 @@ async function handleMessage(message) {
         message.mode
       );
     case "RESET_SESSION_KEEP_ALIVE":
-      await stopSessionKeepAliveForTab(message.tabId);
+      await stopSessionKeepAliveForTab(message.tabId, { pauseAutomatic: true });
       return {
         sessionKeepAlive: await getSessionKeepAliveForTab(message.tabId)
       };
@@ -174,6 +190,32 @@ async function handleMessage(message) {
     case "DELETE_SESSION_KEEP_ALIVE_PRESET":
       return {
         sessionKeepAlive: await deleteSessionPresetForTab(message.tabId)
+      };
+    case "SAVE_SESSION_KEEP_ALIVE_CONFIG":
+      return {
+        sessionKeepAliveConfig: await saveSessionKeepAliveConfig(
+          message.preset,
+          message.originalKey,
+          message.confirmGlobal === true
+        )
+      };
+    case "DELETE_SESSION_KEEP_ALIVE_CONFIG":
+      return {
+        sessionKeepAliveConfig: await deleteSessionKeepAliveConfig(message.presetKey)
+      };
+    case "SET_SESSION_KEEP_ALIVE_PRESET_AUTO_START":
+      return setSessionKeepAlivePresetAutoStart(
+        message.presetKey,
+        message.enabled === true,
+        message.confirmGlobal === true,
+        message.tabId
+      );
+    case "TEST_SESSION_KEEP_ALIVE_PATTERN":
+      return {
+        sessionPatternTest: await testSessionKeepAlivePattern(
+          message.url,
+          message.draftPreset || null
+        )
       };
     case "ROLLBACK": {
       const state = await loadState();
@@ -283,7 +325,7 @@ async function getSessionKeepAliveForTab(inputTabId) {
   if (!tabId) return unsupportedSessionView("Open an HTTPS website to use session keep-alive.");
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     await stopSessionKeepAliveForTab(tabId);
     return unsupportedSessionView("The selected tab is no longer available.");
@@ -295,20 +337,30 @@ async function getSessionKeepAliveForTab(inputTabId) {
   }
   const store = await loadSessionStore();
   const entry = store.entries.find((item) => item.tabId === tabId);
-  const preset = findSessionPreset(store, tabInfo.origin);
+  const preset = findExactSessionPreset(store, tabInfo.origin);
+  const matchedPreset = findEffectiveSessionPreset(store, tabInfo);
+  const pause = findSessionPause(store, tabId, tabInfo.origin, matchedPreset);
   if (entry && entry.origin !== tabInfo.origin) {
-    await stopSessionKeepAliveForTab(tabId);
-    return createSessionView(null, tabInfo, null, preset);
+    await stopSessionKeepAliveForTab(tabId, { clearPause: true });
+    const refreshedStore = await loadSessionStore();
+    return createSessionView(
+      null,
+      tabInfo,
+      null,
+      findExactSessionPreset(refreshedStore, tabInfo.origin),
+      findEffectiveSessionPreset(refreshedStore, tabInfo),
+      null
+    );
   }
   const alarm = entry ? await ensureSessionAlarm(entry) : null;
-  return createSessionView(entry || null, tabInfo, alarm, preset);
+  return createSessionView(entry || null, tabInfo, alarm, preset, matchedPreset, pause);
 }
 
 async function setSessionKeepAliveForTab(inputTabId, enabled, inputInterval, inputTargetPath, inputMode) {
   const tabId = normalizeTabId(inputTabId);
   if (!tabId) throw new Error("Open an HTTPS website before enabling session keep-alive.");
   if (!enabled) {
-    await stopSessionKeepAliveForTab(tabId);
+    await stopSessionKeepAliveForTab(tabId, { pauseAutomatic: true });
     return getSessionKeepAliveForTab(tabId);
   }
 
@@ -318,7 +370,7 @@ async function setSessionKeepAliveForTab(inputTabId, enabled, inputInterval, inp
   }
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     throw new Error("The selected tab is no longer available.");
   }
@@ -348,10 +400,13 @@ async function setSessionKeepAliveForTab(inputTabId, enabled, inputInterval, inp
     createdAt: existingIndex >= 0 ? store.entries[existingIndex].createdAt : now,
     updatedAt: now,
     lastStatus: existingIndex >= 0 ? store.entries[existingIndex].lastStatus : "pending",
-    lastError: ""
+    lastError: "",
+    automatic: false,
+    sourcePresetKey: null
   });
   if (existingIndex >= 0) store.entries[existingIndex] = entry;
   else store.entries.push(entry);
+  store.pauses = store.pauses.filter((pause) => pause.tabId !== tabId);
   await saveSessionStore(store);
 
   try {
@@ -360,15 +415,17 @@ async function setSessionKeepAliveForTab(inputTabId, enabled, inputInterval, inp
     });
   } catch (error) {
     await stopSessionKeepAliveForTab(tabId);
-    throw new Error(`Chrome could not schedule session keep-alive: ${friendlyError(error)}`);
+    throw new Error(`${BrowserName} could not schedule session keep-alive: ${friendlyError(error)}`);
   }
   const updated = await pingSessionKeepAlive(tabId, previousEntry ? "settings" : "enabled");
-  const alarm = updated ? await chrome.alarms.get(sessionAlarmName(tabId)) : null;
+  const alarm = updated ? await ExtensionAPI.alarms.get(sessionAlarmName(tabId)) : null;
   return createSessionView(
     updated,
     tabInfo,
     alarm,
-    findSessionPreset(store, tabInfo.origin)
+    findExactSessionPreset(store, tabInfo.origin),
+    findEffectiveSessionPreset(store, tabInfo),
+    null
   );
 }
 
@@ -377,7 +434,7 @@ async function testSessionKeepAliveForTab(inputTabId, inputTargetPath, inputMode
   if (!tabId) throw new Error("Open an HTTPS website before testing session keep-alive.");
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     throw new Error("The selected tab is no longer available.");
   }
@@ -400,13 +457,15 @@ async function testSessionKeepAliveForTab(inputTabId, inputTargetPath, inputMode
     store.entries[entryIndex] = entry;
     await saveSessionStore(store);
   }
-  const alarm = entry ? await chrome.alarms.get(sessionAlarmName(tabId)) : null;
+  const alarm = entry ? await ExtensionAPI.alarms.get(sessionAlarmName(tabId)) : null;
   return {
     sessionKeepAlive: createSessionView(
       entry,
       tabInfo,
       alarm,
-      findSessionPreset(store, tabInfo.origin)
+      findExactSessionPreset(store, tabInfo.origin),
+      findEffectiveSessionPreset(store, tabInfo),
+      findSessionPause(store, tabId, tabInfo.origin, findEffectiveSessionPreset(store, tabInfo))
     ),
     sessionDiagnostic: createSessionDiagnostic(check, mode)
   };
@@ -421,7 +480,7 @@ async function saveSessionPresetForTab(inputTabId, inputInterval, inputTargetPat
   }
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     throw new Error("The selected tab is no longer available.");
   }
@@ -433,27 +492,30 @@ async function saveSessionPresetForTab(inputTabId, inputInterval, inputTargetPat
     ? ""
     : normalizedInputTargetPath;
   const store = await loadSessionStore();
-  const existingIndex = store.presets.findIndex((preset) => preset.origin === tabInfo.origin);
+  const exactKey = sessionPresetKey({ scope: "exact", pattern: tabInfo.origin });
+  const existingIndex = store.presets.findIndex((preset) => sessionPresetKey(preset) === exactKey);
   if (existingIndex < 0 && store.presets.length >= MAX_SESSION_PRESETS) {
     throw new Error(`Keep-alive presets are limited to ${MAX_SESSION_PRESETS} sites.`);
   }
+  const existingPreset = existingIndex >= 0 ? store.presets[existingIndex] : null;
   const now = new Date().toISOString();
   const preset = normalizeSessionPreset({
-    origin: tabInfo.origin,
+    scope: "exact",
+    pattern: tabInfo.origin,
+    name: existingPreset && existingPreset.name || tabInfo.hostname,
+    autoStart: existingPreset && existingPreset.autoStart === true,
+    excludedHosts: [],
     intervalMinutes,
     targetPath,
     mode,
-    createdAt: existingIndex >= 0 ? store.presets[existingIndex].createdAt : now,
+    createdAt: existingPreset ? existingPreset.createdAt : now,
     updatedAt: now
   });
   if (existingIndex >= 0) store.presets[existingIndex] = preset;
   else store.presets.push(preset);
-  const saved = await saveSessionStore(store);
-  const entry = saved.entries.find((item) => (
-    item.tabId === tabId && item.origin === tabInfo.origin
-  )) || null;
-  const alarm = entry ? await chrome.alarms.get(sessionAlarmName(tabId)) : null;
-  return createSessionView(entry, tabInfo, alarm, preset);
+  await saveSessionStore(store);
+  await reconcileSessionKeepAlives();
+  return getSessionKeepAliveForTab(tabId);
 }
 
 async function deleteSessionPresetForTab(inputTabId) {
@@ -461,42 +523,232 @@ async function deleteSessionPresetForTab(inputTabId) {
   if (!tabId) throw new Error("Open an HTTPS website before deleting a keep-alive preset.");
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     throw new Error("The selected tab is no longer available.");
   }
   const tabInfo = getSessionTabInfo(tab);
   if (!tabInfo) throw new Error("Keep-alive presets are available on HTTPS pages only.");
   const store = await loadSessionStore();
-  const nextPresets = store.presets.filter((preset) => preset.origin !== tabInfo.origin);
-  const saved = nextPresets.length === store.presets.length
-    ? store
-    : await saveSessionStore({ ...store, presets: nextPresets });
-  const entry = saved.entries.find((item) => (
-    item.tabId === tabId && item.origin === tabInfo.origin
-  )) || null;
-  const alarm = entry ? await chrome.alarms.get(sessionAlarmName(tabId)) : null;
-  return createSessionView(entry, tabInfo, alarm, null);
+  const exactKey = sessionPresetKey({ scope: "exact", pattern: tabInfo.origin });
+  const nextPresets = store.presets.filter((preset) => sessionPresetKey(preset) !== exactKey);
+  if (nextPresets.length !== store.presets.length) {
+    await saveSessionStore({ ...store, presets: nextPresets });
+    await reconcileSessionKeepAlives();
+  }
+  return getSessionKeepAliveForTab(tabId);
+}
+
+async function getSessionKeepAliveConfig() {
+  const store = await loadSessionStore();
+  let tabs = [];
+  try {
+    tabs = await ExtensionAPI.tabs.query({});
+  } catch (_error) {
+    tabs = [];
+  }
+  const tabInfos = tabs.map(getSessionTabInfo).filter(Boolean);
+  const presets = [...store.presets]
+    .sort(compareSessionPresetSpecificity)
+    .map((preset) => {
+      const key = sessionPresetKey(preset);
+      const matchingTabIds = tabInfos
+        .filter((tabInfo) => sessionPresetMatchesTab(preset, tabInfo))
+        .map((tabInfo) => tabInfo.tabId);
+      const effectiveTabIds = tabInfos
+        .filter((tabInfo) => {
+          const effective = findEffectiveSessionPreset(store, tabInfo);
+          return effective && sessionPresetKey(effective) === key;
+        })
+        .map((tabInfo) => tabInfo.tabId);
+      return {
+        ...sessionPresetSummary(preset),
+        createdAt: preset.createdAt,
+        matchingTabCount: matchingTabIds.length,
+        effectiveTabCount: effectiveTabIds.length,
+        activeTabCount: store.entries.filter((entry) => (
+          entry.automatic &&
+          entry.sourcePresetKey === key
+        )).length,
+        pausedTabCount: store.pauses.filter((pause) => pause.presetKey === key).length
+      };
+    });
+  return {
+    version: SESSION_STORE_VERSION,
+    presets,
+    activeTabCount: store.entries.length,
+    automaticTabCount: store.entries.filter((entry) => entry.automatic).length,
+    pausedTabCount: store.pauses.length,
+    precedence: "Exact origin, then the most-specific domain or wildcard, then all HTTPS sites."
+  };
+}
+
+async function saveSessionKeepAliveConfig(inputPreset, inputOriginalKey, confirmGlobal) {
+  const rawPreset = inputPreset && typeof inputPreset === "object" ? inputPreset : {};
+  if (!SESSION_PRESET_SCOPES.has(rawPreset.scope)) {
+    throw new Error("Choose an exact origin, domain, subdomain wildcard, or all HTTPS sites.");
+  }
+  if (rawPreset.scope === "global" && rawPreset.autoStart === true && !confirmGlobal) {
+    throw new Error("Confirm that keep-alive should start automatically on every HTTPS site.");
+  }
+  const rawExcludedHosts = Array.isArray(rawPreset.excludedHosts)
+    ? rawPreset.excludedHosts
+    : String(rawPreset.excludedHosts == null ? "" : rawPreset.excludedHosts).split(/[\n,]+/);
+  for (const excludedHost of rawExcludedHosts) {
+    const raw = cleanSessionText(excludedHost, 255).toLowerCase();
+    if (!raw) continue;
+    const hostname = raw.startsWith("*.") ? raw.slice(2) : raw;
+    if (!normalizeSessionHostnamePattern(hostname)) {
+      throw new Error(`Invalid excluded host: ${raw}`);
+    }
+  }
+  const normalized = normalizeSessionPreset({
+    ...rawPreset,
+    createdAt: rawPreset.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  if (!normalized) {
+    throw new Error("The keep-alive site rule is invalid. Check its site pattern, interval, and request path.");
+  }
+  const store = await loadSessionStore();
+  const originalKey = cleanSessionText(inputOriginalKey, 120);
+  const nextKey = sessionPresetKey(normalized);
+  const originalIndex = originalKey
+    ? store.presets.findIndex((preset) => sessionPresetKey(preset) === originalKey)
+    : -1;
+  const duplicateIndex = store.presets.findIndex((preset) => sessionPresetKey(preset) === nextKey);
+  if (duplicateIndex >= 0 && duplicateIndex !== originalIndex) {
+    throw new Error("A keep-alive rule already exists for that site pattern.");
+  }
+  if (originalIndex < 0 && duplicateIndex < 0 && store.presets.length >= MAX_SESSION_PRESETS) {
+    throw new Error(`Keep-alive presets are limited to ${MAX_SESSION_PRESETS} sites.`);
+  }
+  if (originalIndex >= 0) {
+    normalized.createdAt = store.presets[originalIndex].createdAt;
+    store.presets[originalIndex] = normalized;
+  } else if (duplicateIndex >= 0) {
+    normalized.createdAt = store.presets[duplicateIndex].createdAt;
+    store.presets[duplicateIndex] = normalized;
+  } else {
+    store.presets.push(normalized);
+  }
+  await saveSessionStore(store);
+  await reconcileSessionKeepAlives();
+  return getSessionKeepAliveConfig();
+}
+
+async function deleteSessionKeepAliveConfig(inputPresetKey) {
+  const presetKey = cleanSessionText(inputPresetKey, 120);
+  if (!presetKey) throw new Error("Choose a keep-alive site rule to delete.");
+  const store = await loadSessionStore();
+  const presets = store.presets.filter((preset) => sessionPresetKey(preset) !== presetKey);
+  if (presets.length === store.presets.length) {
+    throw new Error("That keep-alive site rule no longer exists.");
+  }
+  const pauses = store.pauses.filter((pause) => pause.presetKey !== presetKey);
+  await saveSessionStore({ ...store, presets, pauses });
+  await reconcileSessionKeepAlives();
+  return getSessionKeepAliveConfig();
+}
+
+async function setSessionKeepAlivePresetAutoStart(inputPresetKey, enabled, confirmGlobal, inputTabId) {
+  const presetKey = cleanSessionText(inputPresetKey, 120);
+  const store = await loadSessionStore();
+  const index = store.presets.findIndex((preset) => sessionPresetKey(preset) === presetKey);
+  if (index < 0) throw new Error("That keep-alive site rule no longer exists.");
+  if (enabled && store.presets[index].scope === "global" && !confirmGlobal) {
+    throw new Error("Confirm that keep-alive should start automatically on every HTTPS site.");
+  }
+  store.presets[index] = normalizeSessionPreset({
+    ...store.presets[index],
+    autoStart: enabled,
+    updatedAt: new Date().toISOString()
+  });
+  if (!enabled) {
+    store.pauses = store.pauses.filter((pause) => pause.presetKey !== presetKey);
+  }
+  await saveSessionStore(store);
+  await reconcileSessionKeepAlives();
+  const result = {
+    sessionKeepAliveConfig: await getSessionKeepAliveConfig()
+  };
+  const tabId = normalizeTabId(inputTabId);
+  if (tabId) result.sessionKeepAlive = await getSessionKeepAliveForTab(tabId);
+  return result;
+}
+
+async function testSessionKeepAlivePattern(inputUrl, inputDraftPreset) {
+  const origin = normalizeHttpsOrigin(inputUrl);
+  if (!origin) throw new Error("Enter a complete HTTPS URL to test.");
+  const parsed = new URL(String(inputUrl));
+  const tabInfo = {
+    tabId: 0,
+    origin,
+    hostname: parsed.hostname.toLowerCase()
+  };
+  const store = await loadSessionStore();
+  let draftPreset = null;
+  if (inputDraftPreset) {
+    const originalKey = cleanSessionText(inputDraftPreset.originalKey, 120);
+    draftPreset = normalizeSessionPreset({
+      ...inputDraftPreset,
+      intervalMinutes: Number(inputDraftPreset.intervalMinutes) || 10,
+      mode: inputDraftPreset.mode || "activity",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    if (!draftPreset) throw new Error("The draft site pattern is invalid.");
+    const draftKey = sessionPresetKey(draftPreset);
+    store.presets = store.presets.filter((preset) => {
+      const key = sessionPresetKey(preset);
+      return key !== draftKey && (!originalKey || key !== originalKey);
+    });
+    store.presets.push(draftPreset);
+  }
+  const effective = findEffectiveSessionPreset(store, tabInfo);
+  const matching = store.presets
+    .filter((preset) => sessionPresetMatchesTab(preset, tabInfo))
+    .sort(compareSessionPresetSpecificity);
+  const draftMatches = draftPreset ? sessionPresetMatchesTab(draftPreset, tabInfo) : null;
+  return {
+    url: parsed.href,
+    origin,
+    hostname: tabInfo.hostname,
+    matched: Boolean(effective),
+    draftMatches,
+    effectivePreset: sessionPresetSummary(effective),
+    matchingPresets: matching.map(sessionPresetSummary),
+    explanation: effective
+      ? `“${effective.name}” wins because ${sessionPresetDisplayPattern(effective)} is the most specific matching rule.`
+      : "No keep-alive site rule matches this HTTPS URL."
+  };
 }
 
 async function handleSessionAlarm(alarm) {
   const tabId = normalizeTabId(String(alarm.name).slice(SESSION_ALARM_PREFIX.length));
   if (!tabId) {
-    await chrome.alarms.clear(alarm.name);
+    await ExtensionAPI.alarms.clear(alarm.name);
     return;
   }
   const entry = await pingSessionKeepAlive(tabId, "scheduled");
-  if (!entry) await chrome.alarms.clear(alarm.name);
+  if (!entry) await ExtensionAPI.alarms.clear(alarm.name);
 }
 
-async function handleSessionTabUpdated(tabId, tab) {
+async function handleSessionTabUpdated(tabId, changeInfo, tab) {
   const store = await loadSessionStore();
   const entry = store.entries.find((item) => item.tabId === tabId);
-  if (!entry) return;
   const tabInfo = getSessionTabInfo(tab);
-  if (!tabInfo || tabInfo.origin !== entry.origin) {
-    await stopSessionKeepAliveForTab(tabId);
+  const originChanged = Boolean(entry && (!tabInfo || tabInfo.origin !== entry.origin));
+  if (originChanged) {
+    await stopSessionKeepAliveForTab(tabId, { clearPause: true });
+  } else if (changeInfo && changeInfo.url) {
+    const pause = store.pauses.find((item) => item.tabId === tabId);
+    if (pause && (!tabInfo || pause.origin !== tabInfo.origin)) {
+      await removeSessionPause(tabId);
+    }
   }
+  if (changeInfo && changeInfo.status !== "complete") return;
+  await reconcileSessionKeepAliveForTab(tabId, tab);
 }
 
 async function pingSessionKeepAlive(tabId, trigger) {
@@ -505,7 +757,7 @@ async function pingSessionKeepAlive(tabId, trigger) {
   if (entryIndex < 0) return null;
   let tab;
   try {
-    tab = await chrome.tabs.get(tabId);
+    tab = await ExtensionAPI.tabs.get(tabId);
   } catch (_error) {
     await stopSessionKeepAliveForTab(tabId);
     return null;
@@ -539,7 +791,7 @@ async function executeSessionKeepAliveCheck(tabId, mode, targetPath, trigger) {
   let pingResult;
   try {
     const injectionResults = await withTimeout(
-      chrome.scripting.executeScript({
+      ExtensionAPI.scripting.executeScript({
         target: { tabId },
         func: runMonoHeaderSessionCheck,
         args: [{ mode, targetPath }]
@@ -632,77 +884,226 @@ function createSessionDiagnostic(check, mode) {
 
 async function reconcileSessionKeepAlives() {
   const store = await loadSessionStore();
-  const retained = [];
+  let tabs = [];
+  try {
+    tabs = await ExtensionAPI.tabs.query({});
+  } catch (_error) {
+    tabs = [];
+  }
+  const tabsById = new Map(
+    tabs
+      .filter((tab) => tab && Number.isInteger(tab.id))
+      .map((tab) => [tab.id, tab])
+  );
+  const retainedEntries = [];
   for (const entry of store.entries) {
-    try {
-      const tab = await chrome.tabs.get(entry.tabId);
-      const tabInfo = getSessionTabInfo(tab);
-      if (!tabInfo || tabInfo.origin !== entry.origin) {
-        await chrome.alarms.clear(sessionAlarmName(entry.tabId));
-        continue;
+    let tab = tabsById.get(entry.tabId);
+    if (!tab) {
+      try {
+        tab = await ExtensionAPI.tabs.get(entry.tabId);
+      } catch (_error) {
+        tab = null;
       }
-      retained.push(entry);
-      await ensureSessionAlarm(entry);
+    }
+    const tabInfo = getSessionTabInfo(tab);
+    if (!tabInfo || tabInfo.origin !== entry.origin) {
+      await ExtensionAPI.alarms.clear(sessionAlarmName(entry.tabId));
+      continue;
+    }
+    retainedEntries.push(entry);
+  }
+  const retainedPauses = store.pauses.filter((pause) => {
+    const tabInfo = getSessionTabInfo(tabsById.get(pause.tabId));
+    if (!tabInfo || tabInfo.origin !== pause.origin) return false;
+    const matchedPreset = findEffectiveSessionPreset(store, tabInfo);
+    return Boolean(matchedPreset && matchedPreset.autoStart && sessionPresetKey(matchedPreset) === pause.presetKey);
+  });
+  if (
+    retainedEntries.length !== store.entries.length ||
+    retainedPauses.length !== store.pauses.length
+  ) {
+    await saveSessionStore({
+      ...store,
+      entries: retainedEntries,
+      pauses: retainedPauses
+    });
+  }
+
+  const seenTabs = new Set();
+  for (const tab of tabs) {
+    if (!tab || !Number.isInteger(tab.id) || seenTabs.has(tab.id)) continue;
+    seenTabs.add(tab.id);
+    await reconcileSessionKeepAliveForTab(tab.id, tab);
+  }
+  for (const entry of retainedEntries) {
+    if (seenTabs.has(entry.tabId)) continue;
+    try {
+      const tab = await ExtensionAPI.tabs.get(entry.tabId);
+      await reconcileSessionKeepAliveForTab(entry.tabId, tab);
     } catch (_error) {
-      await chrome.alarms.clear(sessionAlarmName(entry.tabId));
+      await stopSessionKeepAliveForTab(entry.tabId, { clearPause: true });
     }
   }
-  if (retained.length !== store.entries.length) {
-    await saveSessionStore({ ...store, entries: retained });
+}
+
+async function reconcileSessionKeepAliveForTab(inputTabId, suppliedTab) {
+  const tabId = normalizeTabId(inputTabId);
+  if (!tabId) return null;
+  let tab = suppliedTab;
+  if (!tab) {
+    try {
+      tab = await ExtensionAPI.tabs.get(tabId);
+    } catch (_error) {
+      await stopSessionKeepAliveForTab(tabId, { clearPause: true });
+      return null;
+    }
   }
+  const tabInfo = getSessionTabInfo(tab);
+  if (!tabInfo) {
+    await stopSessionKeepAliveForTab(tabId, { clearPause: true });
+    return null;
+  }
+  const store = await loadSessionStore();
+  const entryIndex = store.entries.findIndex((item) => item.tabId === tabId);
+  const entry = entryIndex >= 0 ? store.entries[entryIndex] : null;
+  if (entry && entry.origin !== tabInfo.origin) {
+    await stopSessionKeepAliveForTab(tabId, { clearPause: true });
+    return reconcileSessionKeepAliveForTab(tabId, tab);
+  }
+  if (entry && !entry.automatic) {
+    await ensureSessionAlarm(entry);
+    return entry;
+  }
+
+  const matchedPreset = findEffectiveSessionPreset(store, tabInfo);
+  const pause = findSessionPause(store, tabId, tabInfo.origin, matchedPreset);
+  if (!matchedPreset || !matchedPreset.autoStart || pause) {
+    if (entry && entry.automatic) await stopSessionKeepAliveForTab(tabId);
+    return null;
+  }
+  if (tab && tab.status === "loading") return entry;
+
+  const presetKey = sessionPresetKey(matchedPreset);
+  const targetPath = matchedPreset.mode === "activity"
+    ? ""
+    : normalizeSessionTargetPath(matchedPreset.targetPath, tabInfo.origin);
+  const settingsChanged = Boolean(entry && (
+    entry.sourcePresetKey !== presetKey ||
+    entry.intervalMinutes !== matchedPreset.intervalMinutes ||
+    entry.targetPath !== targetPath ||
+    entry.mode !== matchedPreset.mode
+  ));
+  const now = new Date().toISOString();
+  const automaticEntry = normalizeSessionEntry({
+    ...(entry || {}),
+    tabId,
+    origin: tabInfo.origin,
+    hostname: tabInfo.hostname,
+    intervalMinutes: matchedPreset.intervalMinutes,
+    targetPath,
+    mode: matchedPreset.mode,
+    automatic: true,
+    sourcePresetKey: presetKey,
+    createdAt: entry ? entry.createdAt : now,
+    updatedAt: now,
+    lastStatus: entry ? entry.lastStatus : "pending",
+    lastError: settingsChanged ? "" : entry && entry.lastError
+  });
+  if (!entry && store.entries.length >= MAX_SESSION_TABS) {
+    return null;
+  }
+  if (entryIndex >= 0) store.entries[entryIndex] = automaticEntry;
+  else store.entries.push(automaticEntry);
+  store.pauses = store.pauses.filter((item) => item.tabId !== tabId);
+  await saveSessionStore(store);
+  await ensureSessionAlarm(automaticEntry, { replace: settingsChanged });
+  if (!entry || settingsChanged) {
+    return pingSessionKeepAlive(tabId, "automatic");
+  }
+  return automaticEntry;
 }
 
 async function ensureSessionAlarm(entry, options) {
   const name = sessionAlarmName(entry.tabId);
-  const existing = await chrome.alarms.get(name);
+  const existing = await ExtensionAPI.alarms.get(name);
   const replace = Boolean(options && options.replace);
   const intervalChanged = !existing || Number(existing.periodInMinutes) !== entry.intervalMinutes;
   if (replace || intervalChanged) {
-    await chrome.alarms.create(name, {
+    await ExtensionAPI.alarms.create(name, {
       periodInMinutes: entry.intervalMinutes
     });
-    return chrome.alarms.get(name);
+    return ExtensionAPI.alarms.get(name);
   }
   return existing;
 }
 
-async function stopSessionKeepAliveForTab(inputTabId) {
+async function stopSessionKeepAliveForTab(inputTabId, options) {
   const tabId = normalizeTabId(inputTabId);
   if (!tabId) return;
   const store = await loadSessionStore();
+  const entry = store.entries.find((item) => item.tabId === tabId);
   const nextEntries = store.entries.filter((item) => item.tabId !== tabId);
-  await chrome.alarms.clear(sessionAlarmName(tabId));
-  if (nextEntries.length !== store.entries.length) {
-    await saveSessionStore({ ...store, entries: nextEntries });
+  let nextPauses = store.pauses;
+  if (options && options.clearPause) {
+    nextPauses = nextPauses.filter((pause) => pause.tabId !== tabId);
+  } else if (options && options.pauseAutomatic && entry && entry.automatic && entry.sourcePresetKey) {
+    nextPauses = nextPauses.filter((pause) => pause.tabId !== tabId);
+    nextPauses.push(normalizeSessionPause({
+      tabId,
+      origin: entry.origin,
+      presetKey: entry.sourcePresetKey,
+      createdAt: new Date().toISOString()
+    }));
+  }
+  await ExtensionAPI.alarms.clear(sessionAlarmName(tabId));
+  if (
+    nextEntries.length !== store.entries.length ||
+    nextPauses.length !== store.pauses.length ||
+    nextPauses.some((pause, index) => pause !== store.pauses[index])
+  ) {
+    await saveSessionStore({ ...store, entries: nextEntries, pauses: nextPauses.filter(Boolean) });
+  }
+}
+
+async function removeSessionPause(inputTabId) {
+  const tabId = normalizeTabId(inputTabId);
+  if (!tabId) return;
+  const store = await loadSessionStore();
+  const pauses = store.pauses.filter((pause) => pause.tabId !== tabId);
+  if (pauses.length !== store.pauses.length) {
+    await saveSessionStore({ ...store, pauses });
   }
 }
 
 async function clearAllSessionKeepAlives() {
   const store = await loadSessionStore();
   for (const entry of store.entries) {
-    await chrome.alarms.clear(sessionAlarmName(entry.tabId));
+    await ExtensionAPI.alarms.clear(sessionAlarmName(entry.tabId));
   }
-  await saveSessionStore({ version: SESSION_STORE_VERSION, entries: [], presets: [] });
+  await saveSessionStore({ version: SESSION_STORE_VERSION, entries: [], presets: [], pauses: [] });
 }
 
 async function loadSessionStore() {
-  const stored = await chrome.storage.local.get(SESSION_STORAGE_KEY);
+  const stored = await ExtensionAPI.storage.local.get(SESSION_STORAGE_KEY);
   return normalizeSessionStore(stored[SESSION_STORAGE_KEY]);
 }
 
 async function saveSessionStore(store) {
   const normalized = normalizeSessionStore(store);
-  await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: normalized });
+  await ExtensionAPI.storage.local.set({ [SESSION_STORAGE_KEY]: normalized });
   return normalized;
 }
 
 function normalizeSessionStore(input) {
   const rawEntries = input && Array.isArray(input.entries) ? input.entries : [];
   const rawPresets = input && Array.isArray(input.presets) ? input.presets : [];
+  const rawPauses = input && Array.isArray(input.pauses) ? input.pauses : [];
   const seenTabs = new Set();
-  const seenOrigins = new Set();
+  const seenPresetKeys = new Set();
+  const seenPauseTabs = new Set();
   const entries = [];
   const presets = [];
+  const pauses = [];
   for (const rawEntry of rawEntries) {
     const entry = normalizeSessionEntry(rawEntry);
     if (!entry || seenTabs.has(entry.tabId)) continue;
@@ -712,12 +1113,20 @@ function normalizeSessionStore(input) {
   }
   for (const rawPreset of rawPresets) {
     const preset = normalizeSessionPreset(rawPreset);
-    if (!preset || seenOrigins.has(preset.origin)) continue;
-    seenOrigins.add(preset.origin);
+    const key = preset && sessionPresetKey(preset);
+    if (!preset || !key || seenPresetKeys.has(key)) continue;
+    seenPresetKeys.add(key);
     presets.push(preset);
     if (presets.length >= MAX_SESSION_PRESETS) break;
   }
-  return { version: SESSION_STORE_VERSION, entries, presets };
+  for (const rawPause of rawPauses) {
+    const pause = normalizeSessionPause(rawPause);
+    if (!pause || seenPauseTabs.has(pause.tabId)) continue;
+    seenPauseTabs.add(pause.tabId);
+    pauses.push(pause);
+    if (pauses.length >= MAX_SESSION_TABS) break;
+  }
+  return { version: SESSION_STORE_VERSION, entries, presets, pauses };
 }
 
 function normalizeSessionEntry(input) {
@@ -748,6 +1157,10 @@ function normalizeSessionEntry(input) {
     intervalMinutes,
     targetPath,
     mode,
+    automatic: input.automatic === true,
+    sourcePresetKey: input.automatic === true
+      ? cleanSessionText(input.sourcePresetKey, 120) || null
+      : null,
     createdAt: normalizeSessionTimestamp(input.createdAt),
     updatedAt: normalizeSessionTimestamp(input.updatedAt),
     lastAttemptAt: normalizeOptionalSessionTimestamp(input.lastAttemptAt),
@@ -770,20 +1183,46 @@ function normalizeSessionEntry(input) {
 
 function normalizeSessionPreset(input) {
   if (!input || typeof input !== "object") return null;
-  const origin = normalizeHttpsOrigin(input.origin);
+  const legacyOrigin = normalizeHttpsOrigin(input.origin);
+  const scope = SESSION_PRESET_SCOPES.has(input.scope)
+    ? input.scope
+    : legacyOrigin
+      ? "exact"
+      : "";
+  if (!scope) return null;
+  let pattern = "";
+  if (scope === "exact") {
+    pattern = normalizeHttpsOrigin(input.pattern || legacyOrigin);
+  } else if (scope === "global") {
+    pattern = "*";
+  } else {
+    pattern = normalizeSessionHostnamePattern(input.pattern);
+  }
   const intervalMinutes = Number(input.intervalMinutes);
-  if (!origin || !SESSION_INTERVALS.has(intervalMinutes)) return null;
+  if (!pattern || !SESSION_INTERVALS.has(intervalMinutes)) return null;
   const mode = normalizeSessionMode(input.mode);
   let targetPath = "";
   if (mode !== "activity") {
     try {
-      targetPath = normalizeSessionTargetPath(input.targetPath, origin);
+      const validationOrigin = scope === "exact"
+        ? pattern
+        : scope === "global"
+          ? "https://example.invalid"
+          : `https://${pattern}`;
+      targetPath = normalizeSessionTargetPath(input.targetPath, validationOrigin);
     } catch (_error) {
       return null;
     }
   }
+  const excludedHosts = scope === "exact"
+    ? []
+    : normalizeSessionExcludedHosts(input.excludedHosts);
   return {
-    origin,
+    scope,
+    pattern,
+    name: cleanSessionText(input.name, 80) || sessionPresetDefaultName(scope, pattern),
+    autoStart: input.autoStart === true,
+    excludedHosts,
     intervalMinutes,
     targetPath,
     mode,
@@ -792,12 +1231,44 @@ function normalizeSessionPreset(input) {
   };
 }
 
-function findSessionPreset(store, origin) {
-  return store.presets.find((preset) => preset.origin === origin) || null;
+function normalizeSessionPause(input) {
+  if (!input || typeof input !== "object") return null;
+  const tabId = normalizeTabId(input.tabId);
+  const origin = normalizeHttpsOrigin(input.origin);
+  const presetKey = cleanSessionText(input.presetKey, 120);
+  if (!tabId || !origin || !presetKey) return null;
+  return {
+    tabId,
+    origin,
+    presetKey,
+    createdAt: normalizeSessionTimestamp(input.createdAt)
+  };
 }
 
-function createSessionView(entry, tabInfo, alarm, preset) {
-  const selectedSettings = entry || preset;
+function findExactSessionPreset(store, origin) {
+  const key = sessionPresetKey({ scope: "exact", pattern: origin });
+  return store.presets.find((preset) => sessionPresetKey(preset) === key) || null;
+}
+
+function findEffectiveSessionPreset(store, tabInfo) {
+  if (!store || !Array.isArray(store.presets) || !tabInfo) return null;
+  return store.presets
+    .filter((preset) => sessionPresetMatchesTab(preset, tabInfo))
+    .sort(compareSessionPresetSpecificity)[0] || null;
+}
+
+function findSessionPause(store, tabId, origin, preset) {
+  if (!preset) return null;
+  const presetKey = sessionPresetKey(preset);
+  return store.pauses.find((pause) => (
+    pause.tabId === tabId &&
+    pause.origin === origin &&
+    pause.presetKey === presetKey
+  )) || null;
+}
+
+function createSessionView(entry, tabInfo, alarm, preset, matchedPreset, pause) {
+  const selectedSettings = entry || preset || matchedPreset;
   return {
     supported: true,
     enabled: Boolean(entry),
@@ -806,12 +1277,11 @@ function createSessionView(entry, tabInfo, alarm, preset) {
     intervalMinutes: selectedSettings ? selectedSettings.intervalMinutes : 10,
     targetPath: selectedSettings ? selectedSettings.targetPath : "",
     mode: selectedSettings ? selectedSettings.mode : "activity",
-    preset: preset ? {
-      intervalMinutes: preset.intervalMinutes,
-      targetPath: preset.targetPath,
-      mode: preset.mode,
-      updatedAt: preset.updatedAt
-    } : null,
+    preset: sessionPresetSummary(preset),
+    matchedPreset: sessionPresetSummary(matchedPreset),
+    automatic: Boolean(entry && entry.automatic),
+    automaticManaged: Boolean(matchedPreset && matchedPreset.autoStart),
+    autoPaused: Boolean(pause),
     lastAttemptAt: entry ? entry.lastAttemptAt : null,
     lastCompletedAt: entry ? entry.lastCompletedAt : null,
     lastSuccessAt: entry ? entry.lastSuccessAt : null,
@@ -841,6 +1311,10 @@ function unsupportedSessionView(reason) {
     targetPath: "",
     mode: "activity",
     preset: null,
+    matchedPreset: null,
+    automatic: false,
+    automaticManaged: false,
+    autoPaused: false,
     lastAttemptAt: null,
     lastCompletedAt: null,
     lastSuccessAt: null,
@@ -856,6 +1330,140 @@ function unsupportedSessionView(reason) {
     alarmPeriodMinutes: null,
     nextCheckAt: null
   };
+}
+
+function sessionPresetKey(preset) {
+  if (!preset || !SESSION_PRESET_SCOPES.has(preset.scope)) return "";
+  return `${preset.scope}|${String(preset.pattern || "").toLowerCase()}`;
+}
+
+function sessionPresetSummary(preset) {
+  if (!preset) return null;
+  return {
+    key: sessionPresetKey(preset),
+    name: preset.name,
+    scope: preset.scope,
+    pattern: preset.pattern,
+    displayPattern: sessionPresetDisplayPattern(preset),
+    autoStart: preset.autoStart,
+    excludedHosts: [...preset.excludedHosts],
+    intervalMinutes: preset.intervalMinutes,
+    targetPath: preset.targetPath,
+    mode: preset.mode,
+    updatedAt: preset.updatedAt
+  };
+}
+
+function sessionPresetDisplayPattern(preset) {
+  if (!preset) return "";
+  if (preset.scope === "global") return "All HTTPS sites";
+  if (preset.scope === "subdomains") return `*.${preset.pattern}`;
+  if (preset.scope === "domain") return `${preset.pattern} + subdomains`;
+  return preset.pattern;
+}
+
+function sessionPresetDefaultName(scope, pattern) {
+  if (scope === "global") return "All HTTPS sites";
+  if (scope === "subdomains") return `Subdomains of ${pattern}`;
+  if (scope === "domain") return pattern;
+  try {
+    return new URL(pattern).hostname;
+  } catch (_error) {
+    return pattern;
+  }
+}
+
+function normalizeSessionHostnamePattern(value) {
+  let raw = cleanSessionText(value, 253).toLowerCase();
+  if (!raw) return "";
+  if (raw.startsWith("*.")) raw = raw.slice(2);
+  if (raw.includes("://")) {
+    try {
+      raw = new URL(raw).hostname.toLowerCase();
+    } catch (_error) {
+      return "";
+    }
+  }
+  raw = raw.replace(/\.$/, "");
+  if (
+    !raw ||
+    raw.length > 253 ||
+    raw.includes("/") ||
+    raw.includes(":") ||
+    !/^[a-z0-9.-]+$/.test(raw) ||
+    raw.startsWith(".") ||
+    raw.includes("..")
+  ) {
+    return "";
+  }
+  const labels = raw.split(".");
+  if (labels.some((label) => !label || label.length > 63 || label.startsWith("-") || label.endsWith("-"))) {
+    return "";
+  }
+  return raw;
+}
+
+function normalizeSessionExcludedHosts(input) {
+  const rawItems = Array.isArray(input)
+    ? input
+    : String(input == null ? "" : input).split(/[\n,]+/);
+  const seen = new Set();
+  const excludedHosts = [];
+  for (const rawItem of rawItems) {
+    let raw = cleanSessionText(rawItem, 255).toLowerCase();
+    if (!raw) continue;
+    const wildcard = raw.startsWith("*.");
+    if (wildcard) raw = raw.slice(2);
+    const hostname = normalizeSessionHostnamePattern(raw);
+    if (!hostname) continue;
+    const normalized = wildcard ? `*.${hostname}` : hostname;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    excludedHosts.push(normalized);
+    if (excludedHosts.length >= 50) break;
+  }
+  return excludedHosts;
+}
+
+function sessionPresetMatchesTab(preset, tabInfo) {
+  if (!preset || !tabInfo || !tabInfo.origin || !tabInfo.hostname) return false;
+  const hostname = tabInfo.hostname.toLowerCase();
+  let matches = false;
+  if (preset.scope === "exact") {
+    matches = preset.pattern === tabInfo.origin;
+  } else if (preset.scope === "domain") {
+    matches = hostname === preset.pattern || hostname.endsWith(`.${preset.pattern}`);
+  } else if (preset.scope === "subdomains") {
+    matches = hostname !== preset.pattern && hostname.endsWith(`.${preset.pattern}`);
+  } else if (preset.scope === "global") {
+    matches = true;
+  }
+  if (!matches) return false;
+  return !preset.excludedHosts.some((excluded) => {
+    if (excluded.startsWith("*.")) {
+      const base = excluded.slice(2);
+      return hostname !== base && hostname.endsWith(`.${base}`);
+    }
+    return hostname === excluded;
+  });
+}
+
+function compareSessionPresetSpecificity(left, right) {
+  const scopeRank = {
+    exact: 4,
+    subdomains: 3,
+    domain: 2,
+    global: 1
+  };
+  const rankDifference = (scopeRank[right.scope] || 0) - (scopeRank[left.scope] || 0);
+  if (left.scope === "exact" || right.scope === "exact" || left.scope === "global" || right.scope === "global") {
+    if (rankDifference) return rankDifference;
+  }
+  const leftPatternLength = left.pattern === "*" ? 0 : left.pattern.length;
+  const rightPatternLength = right.pattern === "*" ? 0 : right.pattern.length;
+  if (leftPatternLength !== rightPatternLength) return rightPatternLength - leftPatternLength;
+  if (rankDifference) return rankDifference;
+  return sessionPresetKey(left).localeCompare(sessionPresetKey(right));
 }
 
 function normalizeAlarmTimestamp(value) {
@@ -910,7 +1518,7 @@ function normalizeSessionMode(value) {
 }
 
 function normalizeSessionTrigger(value) {
-  return ["enabled", "settings", "scheduled", "manual"].includes(value)
+  return ["enabled", "settings", "scheduled", "manual", "automatic"].includes(value)
     ? value
     : null;
 }
@@ -1083,8 +1691,8 @@ async function initializeAndReconcile(reason) {
   const compiled = Core.compileState(state);
   await validateRegexRules([...compiled.dynamicRules, ...compiled.sessionRules]);
   const [existingDynamic, existingSession] = await Promise.all([
-    chrome.declarativeNetRequest.getDynamicRules(),
-    chrome.declarativeNetRequest.getSessionRules()
+    ExtensionAPI.declarativeNetRequest.getDynamicRules(),
+    ExtensionAPI.declarativeNetRequest.getSessionRules()
   ]);
   if (
     Core.dnrSignature(existingDynamic) !== Core.dnrSignature(compiled.dynamicRules) ||
@@ -1143,8 +1751,8 @@ async function applyState(input, reason, options) {
   }
 
   const [existingDynamic, existingSession] = await Promise.all([
-    chrome.declarativeNetRequest.getDynamicRules(),
-    chrome.declarativeNetRequest.getSessionRules()
+    ExtensionAPI.declarativeNetRequest.getDynamicRules(),
+    ExtensionAPI.declarativeNetRequest.getSessionRules()
   ]);
   try {
     await replaceRuleSets(
@@ -1154,8 +1762,8 @@ async function applyState(input, reason, options) {
       compiled.sessionRules
     );
   } catch (error) {
-    await recordFailureSafely(current, "Chrome DNR", "Chrome rejected the rule deployment.", friendlyError(error));
-    throw new Error(`Chrome rejected the rule deployment: ${friendlyError(error)}`);
+    await recordFailureSafely(current, `${BrowserName} DNR`, `${BrowserName} rejected the rule deployment.`, friendlyError(error));
+    throw new Error(`${BrowserName} rejected the rule deployment: ${friendlyError(error)}`);
   }
 
   if (options && options.resetHistory) {
@@ -1193,9 +1801,9 @@ async function applyState(input, reason, options) {
       );
     } catch (rollbackError) {
       console.error("MonoHeader could not restore DNR rules after a storage failure.", rollbackError);
-      throw new Error(`Local state could not be saved, and Chrome could not restore the prior rules: ${friendlyError(rollbackError)}`);
+      throw new Error(`Local state could not be saved, and ${BrowserName} could not restore the prior rules: ${friendlyError(rollbackError)}`);
     }
-    throw new Error(`Local state could not be saved. The previous Chrome rules were restored: ${friendlyError(error)}`);
+    throw new Error(`Local state could not be saved. The previous ${BrowserName} rules were restored: ${friendlyError(error)}`);
   }
   await updateActionSafely(candidate, compiled.logicalRuleCount);
   return {
@@ -1208,14 +1816,14 @@ async function applyState(input, reason, options) {
 async function validateRegexRules(rules) {
   for (const rule of rules) {
     if (!rule.condition.regexFilter) continue;
-    const result = await chrome.declarativeNetRequest.isRegexSupported({
+    const result = await ExtensionAPI.declarativeNetRequest.isRegexSupported({
       regex: rule.condition.regexFilter,
       isCaseSensitive: rule.condition.isUrlFilterCaseSensitive === true,
       requireCapturing: false
     });
     if (!result.isSupported) {
       const reason = result.reason ? ` (${result.reason})` : "";
-      const error = new Error(`Regular expression in DNR rule ${rule.id} is not supported by Chrome${reason}.`);
+      const error = new Error(`Regular expression in DNR rule ${rule.id} is not supported by ${BrowserName}${reason}.`);
       error.name = "ValidationError";
       throw error;
     }
@@ -1225,7 +1833,7 @@ async function validateRegexRules(rules) {
 async function replaceDynamicRules(existing, nextRules) {
   const removeRuleIds = existing.map((rule) => rule.id);
   if (removeRuleIds.length === 0 && nextRules.length === 0) return;
-  await chrome.declarativeNetRequest.updateDynamicRules({
+  await ExtensionAPI.declarativeNetRequest.updateDynamicRules({
     removeRuleIds,
     addRules: nextRules
   });
@@ -1234,7 +1842,7 @@ async function replaceDynamicRules(existing, nextRules) {
 async function replaceSessionRules(existing, nextRules) {
   const removeRuleIds = existing.map((rule) => rule.id);
   if (removeRuleIds.length === 0 && nextRules.length === 0) return;
-  await chrome.declarativeNetRequest.updateSessionRules({
+  await ExtensionAPI.declarativeNetRequest.updateSessionRules({
     removeRuleIds,
     addRules: nextRules
   });
@@ -1282,7 +1890,7 @@ async function recordFailureSafely(state, source, message, details) {
 }
 
 async function loadState() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const stored = await ExtensionAPI.storage.local.get(STORAGE_KEY);
   const state = Core.normalizeState(stored[STORAGE_KEY]);
   if (!stored[STORAGE_KEY]) await saveState(state);
   const sessionValues = await loadSessionHeaderValues();
@@ -1296,16 +1904,16 @@ async function saveState(state) {
     version: SESSION_HEADER_VALUES_VERSION,
     values: Core.extractSessionHeaderValues(normalized)
   };
-  const previousSession = await chrome.storage.session.get(SESSION_HEADER_VALUES_KEY);
-  await chrome.storage.session.set({ [SESSION_HEADER_VALUES_KEY]: nextSessionStore });
+  const previousSession = await ExtensionAPI.storage.session.get(SESSION_HEADER_VALUES_KEY);
+  await ExtensionAPI.storage.session.set({ [SESSION_HEADER_VALUES_KEY]: nextSessionStore });
   try {
-    await chrome.storage.local.set({ [STORAGE_KEY]: localState });
+    await ExtensionAPI.storage.local.set({ [STORAGE_KEY]: localState });
   } catch (error) {
     try {
       if (previousSession[SESSION_HEADER_VALUES_KEY] === undefined) {
-        await chrome.storage.session.remove(SESSION_HEADER_VALUES_KEY);
+        await ExtensionAPI.storage.session.remove(SESSION_HEADER_VALUES_KEY);
       } else {
-        await chrome.storage.session.set({
+        await ExtensionAPI.storage.session.set({
           [SESSION_HEADER_VALUES_KEY]: previousSession[SESSION_HEADER_VALUES_KEY]
         });
       }
@@ -1318,7 +1926,7 @@ async function saveState(state) {
 }
 
 async function loadSessionHeaderValues() {
-  const stored = await chrome.storage.session.get(SESSION_HEADER_VALUES_KEY);
+  const stored = await ExtensionAPI.storage.session.get(SESSION_HEADER_VALUES_KEY);
   const raw = stored && stored[SESSION_HEADER_VALUES_KEY];
   if (!raw || raw.version !== SESSION_HEADER_VALUES_VERSION || !raw.values || typeof raw.values !== "object") {
     return {};
@@ -1334,20 +1942,20 @@ async function loadSessionHeaderValues() {
 }
 
 async function restrictStorageAccess() {
-  if (chrome.storage.local.setAccessLevel) {
-    await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  if (ExtensionAPI.storage.local.setAccessLevel) {
+    await ExtensionAPI.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
   }
-  if (chrome.storage.session.setAccessLevel) {
-    await chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  if (ExtensionAPI.storage.session.setAccessLevel) {
+    await ExtensionAPI.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
   }
 }
 
 async function getRuntime(state) {
   const [dynamicRules, sessionRules, storageBytes, sessionStorageBytes] = await Promise.all([
-    chrome.declarativeNetRequest.getDynamicRules(),
-    chrome.declarativeNetRequest.getSessionRules(),
-    chrome.storage.local.getBytesInUse(null),
-    chrome.storage.session.getBytesInUse(null)
+    ExtensionAPI.declarativeNetRequest.getDynamicRules(),
+    ExtensionAPI.declarativeNetRequest.getSessionRules(),
+    ExtensionAPI.storage.local.getBytesInUse(null),
+    ExtensionAPI.storage.session.getBytesInUse(null)
   ]);
   const activeProfile = Core.getActiveProfile(state);
   const deployedRuleCount = new Set([
@@ -1381,8 +1989,8 @@ async function updateAction(state, knownRuleCount) {
   let count = knownRuleCount;
   if (typeof count !== "number") {
     const [dynamicRules, sessionRules] = await Promise.all([
-      chrome.declarativeNetRequest.getDynamicRules(),
-      chrome.declarativeNetRequest.getSessionRules()
+      ExtensionAPI.declarativeNetRequest.getDynamicRules(),
+      ExtensionAPI.declarativeNetRequest.getSessionRules()
     ]);
     count = new Set([
       ...dynamicRules.map((rule) => rule.id),
@@ -1391,9 +1999,9 @@ async function updateAction(state, knownRuleCount) {
   }
   const enabled = state.extensionEnabled;
   await Promise.all([
-    chrome.action.setBadgeText({ text: enabled ? (count > 0 ? String(Math.min(count, 999)) : "ON") : "OFF" }),
-    chrome.action.setBadgeBackgroundColor({ color: enabled ? "#4f46e5" : "#64748b" }),
-    chrome.action.setTitle({
+    ExtensionAPI.action.setBadgeText({ text: enabled ? (count > 0 ? String(Math.min(count, 999)) : "ON") : "OFF" }),
+    ExtensionAPI.action.setBadgeBackgroundColor({ color: enabled ? "#4f46e5" : "#64748b" }),
+    ExtensionAPI.action.setTitle({
       title: enabled
         ? `MonoHeader — ${count} active rule${count === 1 ? "" : "s"}`
         : "MonoHeader — paused"

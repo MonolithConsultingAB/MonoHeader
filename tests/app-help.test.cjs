@@ -38,5 +38,5 @@ test("pattern guidance follows the selected filter syntax", () => {
   assert.match(appJs, /function updatePatternGuidance\(\)/);
   assert.match(appJs, /regexFilter/);
   assert.match(appJs, /RE2 syntax/);
-  assert.match(appJs, /Chrome URL-filter syntax/);
+  assert.match(appJs, /DNR URL-filter syntax/);
 });
